@@ -4,9 +4,13 @@ import 'package:provider/provider.dart';
 import '../core/strings.dart';
 import '../core/theme.dart';
 import '../services/app_state.dart';
+import '../services/pair_state.dart';
 import '../widgets/destination_card.dart';
 import 'expenses_screen.dart';
+import 'experiences_screen.dart';
 import 'memories_screen.dart';
+import 'pair_screen.dart';
+import 'sponsor_screen.dart';
 
 /// Guest-first profile: settings, language (EN/UR/AR + RTL), dark mode,
 /// Roman Urdu toggle, saved places, memories and budget. No forced sign-up.
@@ -84,6 +88,53 @@ class ProfileScreen extends StatelessWidget {
                   (app.themeMode == ThemeMode.system &&
                       MediaQuery.platformBrightnessOf(context) == Brightness.dark),
               onChanged: (v) => app.setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Couple pairing + shared experiences + sponsor
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(
+                      context.watch<PairState>().sharingLocation
+                          ? Icons.share_location_rounded
+                          : Icons.favorite_rounded,
+                      color: context.watch<PairState>().sharingLocation
+                          ? Colors.redAccent
+                          : Colors.pinkAccent),
+                  title: const Text('Couple Pairing'),
+                  subtitle: Text(context.watch<PairState>().paired
+                      ? (context.watch<PairState>().sharingLocation
+                          ? 'Paired · sharing live location'
+                          : 'Paired · code ${context.watch<PairState>().code}')
+                      : 'Link two phones with one security code'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (_) => const PairScreen())),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading:
+                      const Icon(Icons.auto_awesome_rounded, color: AppColors.gold),
+                  title: const Text('Shared Experiences'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const ExperiencesScreen())),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: ClipOval(
+                    child: Image.asset('assets/images/sponsor_binmukhtar.png',
+                        width: 28, height: 28),
+                  ),
+                  title: const Text('Sponsored by Bin-Mukhtar Travels'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context)
+                      .push(MaterialPageRoute(builder: (_) => const SponsorScreen())),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),

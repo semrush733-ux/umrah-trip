@@ -22,6 +22,9 @@
 | Budget & expense tracker (SAR, 6 categories, optional user-entered PKR rate with timestamp) | ✅ |
 | Offline-first: destinations bundled; trip, visits, favourites, expenses in SQLite — survive restarts | ✅ |
 | EN / اردو / العربية UI with RTL + Roman Urdu descriptions toggle | ✅ |
+| **Couple Pairing** — one security code links two phones (self-hosted on your WordPress via the bundled `wordpress-plugin/bwp-umrah-pair` plugin): consensual live pin location (partner marker on the map + Open-in-Maps), shared visited-Ziyarat sync, camera photo sharing with OS permission prompt, un-pair anytime (docs/PAIRING.md) | ✅ |
+| **Shared Experiences page** — yours ✓ / partner ✓ / done-together ❤ timeline + shared photo gallery | ✅ |
+| **Sponsored by Bin-Mukhtar Travels** — splash credit + dedicated sponsor page | ✅ |
 | Unit tests for itinerary management & visit tracking | ✅ |
 | CI: Android APK + AAB, iOS **unsigned IPA** artifacts on every push | ✅ |
 | Laravel API + PostgreSQL + Next.js admin, reminders/notifications, Routes-API ETAs, text-to-speech polish | 🔜 next rounds (see Roadmap) |

@@ -6,6 +6,7 @@ import 'core/theme.dart';
 import 'screens/root.dart';
 import 'screens/splash_screen.dart';
 import 'services/app_state.dart';
+import 'services/pair_state.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,18 +21,23 @@ class UmrahJourneyApp extends StatefulWidget {
 
 class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
   late final AppState state;
+  late final PairState pairState;
 
   @override
   void initState() {
     super.initState();
     state = AppState();
-    state.init();
+    pairState = PairState(state);
+    state.init().then((_) => pairState.init());
   }
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider.value(
-      value: state,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: state),
+        ChangeNotifierProvider.value(value: pairState),
+      ],
       child: Consumer<AppState>(
         builder: (context, app, _) {
           return StringsScope(

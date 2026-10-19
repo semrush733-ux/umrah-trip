@@ -1,0 +1,107 @@
+import 'dart:convert';
+
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// REST client for the "BWP Umrah Pair" WordPress plugin
+/// (see wordpress-plugin/ in this repo — install it on any WP site).
+///
+/// The server base URL is configured at runtime on the Pair screen
+/// (e.g. https://bwpexperts.com) and may be pre-seeded at build time with
+///   --dart-define=PAIR_API_BASE=https://your-site.com
+const String kDefaultPairApiBase = String.fromEnvironment('PAIR_API_BASE');
+
+class PairApiResult {
+  final bool ok;
+  final Map<String, dynamic> data;
+  final String? error;
+  const PairApiResult(this.ok, this.data, [this.error]);
+}
+
+class PairService {
+  final http.Client _client = http.Client();
+  String baseUrl = '';
+
+  Future<void> loadBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    baseUrl = prefs.getString('pair_base_url') ?? kDefaultPairApiBase;
+  }
+
+  Future<void> saveBaseUrl(String url) async {
+    baseUrl = url.trim().replaceAll(RegExp(r'/+$'), '');
+    (await SharedPreferences.getInstance()).setString('pair_base_url', baseUrl);
+  }
+
+  bool get configured => baseUrl.startsWith('http');
+
+  Uri _ep(String name) => Uri.parse('$baseUrl/wp-json/umrah-pair/v1/$name');
+
+  Future<PairApiResult> _post(String name, Map<String, dynamic> body,
+      {Duration timeout = const Duration(seconds: 15)}) async {
+    if (!configured) return const PairApiResult(false, {}, 'Server URL not set');
+    try {
+      final r = await _client
+          .post(_ep(name),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode(body))
+          .timeout(timeout);
+      final Map<String, dynamic> j = r.body.isEmpty
+          ? {}
+          : (jsonDecode(r.body) as Map<String, dynamic>? ?? {});
+      if (r.statusCode == 200 && (j['ok'] == true)) {
+        return PairApiResult(true, j);
+      }
+      return PairApiResult(false, j, j['error']?.toString() ?? 'HTTP ${r.statusCode}');
+    } catch (e) {
+      return PairApiResult(false, {}, 'Network: $e');
+    }
+  }
+
+  /// Creates a pair room. Returns {code, token}.
+  Future<PairApiResult> create(String name) => _post('create', {'name': name});
+
+  /// Joins with the partner's code. Returns {token}.
+  Future<PairApiResult> join(String code, String name) =>
+      _post('join', {'code': code, 'name': name});
+
+  /// Heartbeat + fetch in one call. Sends my live location (when sharing) and
+  /// my visited map; returns the full merged room state.
+  Future<PairApiResult> sync({
+    required String code,
+    required String token,
+    double? lat,
+    double? lng,
+    double? accuracy,
+    required bool sharing,
+    required Map<String, int> visits, // destId -> epoch seconds
+  }) =>
+      _post('sync', {
+        'code': code,
+        'token': token,
+        if (lat != null) 'lat': lat,
+        if (lng != null) 'lng': lng,
+        if (accuracy != null) 'acc': accuracy,
+        'sharing': sharing,
+        'visits': visits,
+      });
+
+  /// Uploads a photo (base64 jpeg) to the shared gallery. Returns {url}.
+  Future<PairApiResult> photo({
+    required String code,
+    required String token,
+    required String base64Jpeg,
+    String? caption,
+  }) =>
+      _post(
+          'photo',
+          {
+            'code': code,
+            'token': token,
+            'image': base64Jpeg,
+            if (caption != null && caption.isNotEmpty) 'caption': caption,
+          },
+          timeout: const Duration(seconds: 45));
+
+  Future<PairApiResult> unpair(String code, String token) =>
+      _post('unpair', {'code': code, 'token': token});
+}

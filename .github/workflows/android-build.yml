@@ -39,12 +39,14 @@ jobs:
       - name: Build release APK
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
-        run: flutter build apk --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-}
+          PAIR_API_BASE: ${{ secrets.PAIR_API_BASE }}
+        run: flutter build apk --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=PAIR_API_BASE=${PAIR_API_BASE:-}
 
       - name: Build release AAB
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
-        run: flutter build appbundle --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-}
+          PAIR_API_BASE: ${{ secrets.PAIR_API_BASE }}
+        run: flutter build appbundle --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=PAIR_API_BASE=${PAIR_API_BASE:-}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

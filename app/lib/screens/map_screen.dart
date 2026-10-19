@@ -8,6 +8,7 @@ import '../core/utils.dart';
 import '../models/destination.dart';
 import '../models/trip.dart';
 import '../services/app_state.dart';
+import '../services/pair_state.dart';
 import '../widgets/destination_card.dart';
 import 'destination_detail.dart';
 
@@ -216,6 +217,19 @@ class _MapScreenState extends State<MapScreen> {
               onTap: () => _openPreview(d),
             ))
         .toSet();
+
+    // Paired partner's live pin (consensual sharing).
+    final pair = context.watch<PairState>();
+    final partner = pair.partner;
+    if (partner != null && partner.sharing && partner.lat != null && partner.lng != null) {
+      markers.add(Marker(
+        markerId: const MarkerId('__partner__'),
+        position: LatLng(partner.lat!, partner.lng!),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: InfoWindow(title: '❤ ${partner.name}', snippet: 'Live location'),
+        zIndex: 10,
+      ));
+    }
 
     final center = app.position != null
         ? LatLng(app.position!.latitude, app.position!.longitude)

@@ -229,14 +229,29 @@ class _SplashScreenState extends State<SplashScreen>
             bottom: 28,
             child: FadeTransition(
               opacity: _textFade,
-              child: Text(
-                'by BWP Experts',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.55),
-                  fontSize: 12,
-                  letterSpacing: 1,
-                ),
+              child: Column(
+                children: [
+                  Text(
+                    'Sponsored by BIN-MUKHTAR TRAVELS',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: AppColors.goldLight.withValues(alpha: 0.9),
+                      fontSize: 12.5,
+                      letterSpacing: 1.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'by BWP Experts',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.55),
+                      fontSize: 11,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

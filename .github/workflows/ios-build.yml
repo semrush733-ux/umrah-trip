@@ -31,7 +31,8 @@ jobs:
       - name: Build iOS (release, no codesign)
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
-        run: flutter build ios --release --no-codesign --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-}
+          PAIR_API_BASE: ${{ secrets.PAIR_API_BASE }}
+        run: flutter build ios --release --no-codesign --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=PAIR_API_BASE=${PAIR_API_BASE:-}
 
       - name: Package unsigned IPA
         run: |

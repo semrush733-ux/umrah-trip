@@ -63,8 +63,17 @@ def patch_ios_plist() -> None:
         data = plistlib.load(f)
     data["CFBundleDisplayName"] = "Umrah Trip"
     data["NSLocationWhenInUseUsageDescription"] = (
-        "Umrah Trip uses your location to show nearby Ziyarat places, distances "
-        "and one-tap navigation. It is never tracked in the background."
+        "Umrah Trip uses your location to show nearby Ziyarat places, distances, "
+        "one-tap navigation and (only when you turn it on) live sharing with "
+        "your paired partner. It is never tracked in the background."
+    )
+    data["NSCameraUsageDescription"] = (
+        "Umrah Trip opens the camera only when you tap the camera button, to "
+        "take a photo and send it to your paired partner."
+    )
+    data["NSPhotoLibraryUsageDescription"] = (
+        "Umrah Trip accesses photos only when you choose one to send to your "
+        "paired partner."
     )
     data["GMapsAPIKey"] = MAPS_KEY
     # TTS / AVSpeech needs no permission; url_launcher queries:
