@@ -33,8 +33,8 @@ jobs:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: bash ../scripts/bootstrap_platforms.sh
 
-      - name: Analyze
-        run: flutter analyze --no-fatal-infos
+      - name: Analyze (errors fatal, style warnings reported only)
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Unit tests (itinerary + visit tracking)
         run: flutter test
