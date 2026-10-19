@@ -1,0 +1,21 @@
+# Flutter / Dart
+app/.dart_tool/
+app/.packages
+app/build/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/pubspec.lock
+
+# Generated platform folders (recreated by scripts/bootstrap_platforms.sh)
+app/android/
+app/ios/
+app/linux/
+app/macos/
+app/windows/
+app/web/
+
+# IDE / OS
+.idea/
+*.iml
+.DS_Store
+.env

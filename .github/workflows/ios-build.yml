@@ -1,0 +1,53 @@
+name: iOS Build (unsigned IPA)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform folders
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: bash ../scripts/bootstrap_platforms.sh
+
+      - name: Build iOS (release, no codesign)
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+        run: flutter build ios --release --no-codesign --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-}
+
+      - name: Package unsigned IPA
+        run: |
+          cd build/ios/iphoneos
+          mkdir -p Payload
+          cp -R Runner.app Payload/
+          zip -qry UmrahTrip-unsigned.ipa Payload
+          ls -lh UmrahTrip-unsigned.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: UmrahTrip-unsigned-ipa
+          path: app/build/ios/iphoneos/UmrahTrip-unsigned.ipa
+
+# Signed IPA / TestFlight: add Apple certificates + provisioning profile as
+# repo secrets, import them with apple-actions/import-codesign-certs, drop
+# --no-codesign and run `flutter build ipa --export-options-plist ...`.
+# See docs/SETUP.md → "iOS signing".

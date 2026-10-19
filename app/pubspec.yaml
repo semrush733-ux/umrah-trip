@@ -1,0 +1,43 @@
+name: umrah_journey
+description: "Umrah Journey – Smart Ziyarat & Travel Guide by BWP Experts. Discover, learn, navigate and track your Ziyarat across Saudi Arabia."
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.6.0 # withValues/records require Dart 3.6+ (Flutter 3.27+)
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.2
+  sqflite: ^2.3.3
+  path: ^1.9.0
+  path_provider: ^2.1.4
+  shared_preferences: ^2.3.2
+  geolocator: ^13.0.1
+  url_launcher: ^6.3.0
+  google_maps_flutter: ^2.9.0
+  flutter_tts: ^4.0.2
+  intl: ^0.19.0
+  uuid: ^4.4.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.13.1
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  remove_alpha_ios: true
+  background_color_ios: "#F8F7F2"
+  adaptive_icon_background: "#086B58"
+  adaptive_icon_foreground: "assets/images/icon_fg.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/data/destinations.json
+    - assets/images/logo.png
