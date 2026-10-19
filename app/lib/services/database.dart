@@ -52,8 +52,9 @@ class AppDatabase {
   }
 
   // ---- Trip days / visits ----
-  Future<void> upsertDay(TripDay d) async =>
-      (await db).insert('trip_days', d.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> upsertDay(TripDay d) async {
+    await (await db).insert('trip_days', d.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
   Future<void> deleteDay(String id) async {
     final d = await db;
@@ -61,11 +62,13 @@ class AppDatabase {
     await d.delete('trip_visits', where: 'day_id = ?', whereArgs: [id]);
   }
 
-  Future<void> upsertVisit(TripVisit v) async =>
-      (await db).insert('trip_visits', v.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> upsertVisit(TripVisit v) async {
+    await (await db).insert('trip_visits', v.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
-  Future<void> deleteVisit(String id) async =>
-      (await db).delete('trip_visits', where: 'id = ?', whereArgs: [id]);
+  Future<void> deleteVisit(String id) async {
+    await (await db).delete('trip_visits', where: 'id = ?', whereArgs: [id]);
+  }
 
   Future<(List<TripDay>, List<TripVisit>)> loadTrip() async {
     final d = await db;
@@ -91,11 +94,13 @@ class AppDatabase {
   }
 
   // ---- Expenses ----
-  Future<void> upsertExpense(Expense e) async =>
-      (await db).insert('expenses', e.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> upsertExpense(Expense e) async {
+    await (await db).insert('expenses', e.toMap(), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
-  Future<void> deleteExpense(String id) async =>
-      (await db).delete('expenses', where: 'id = ?', whereArgs: [id]);
+  Future<void> deleteExpense(String id) async {
+    await (await db).delete('expenses', where: 'id = ?', whereArgs: [id]);
+  }
 
   Future<List<Expense>> loadExpenses() async =>
       (await (await db).query('expenses', orderBy: 'date DESC')).map(Expense.fromMap).toList();

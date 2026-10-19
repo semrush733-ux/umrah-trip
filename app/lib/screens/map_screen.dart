@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:provider/provider.dart';
@@ -30,11 +29,9 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   GoogleMapController? _controller;
   String _filter = 'all'; // all | region keys | planned | visited | nearby
-  StreamSubscription? _posSub;
 
   @override
   void dispose() {
-    _posSub?.cancel();
     _controller?.dispose();
     super.dispose();
   }

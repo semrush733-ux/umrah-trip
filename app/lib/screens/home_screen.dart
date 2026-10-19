@@ -161,7 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 6),
                       Text(
                         [
-                          if (next!.time != null) '🕐 ${next.time}',
+                          if (next?.time != null) '🕐 ${next!.time}',
                           if (dist != null) '${formatKm(dist)} (${s.straightLine})',
                           if (dist != null && walkingEstimate(dist) != null) walkingEstimate(dist)!,
                         ].join(' · '),
