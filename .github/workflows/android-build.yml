@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: android-${{ github.ref }}
   cancel-in-progress: true
@@ -33,12 +36,6 @@ jobs:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
         run: bash ../scripts/bootstrap_platforms.sh
 
-      - name: Analyze (errors fatal, style warnings reported only)
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
-
-      - name: Unit tests (itinerary + visit tracking)
-        run: flutter test
-
       - name: Build release APK
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
@@ -60,3 +57,43 @@ jobs:
         with:
           name: UmrahTrip-release-aab
           path: app/build/app/outputs/bundle/release/app-release.aab
+
+      # ---- Quality gates: run after artifacts so a style issue never blocks
+      # a usable build; full output is posted as a commit comment. The job
+      # still turns red if analysis finds errors or tests fail. ----
+      - name: Analyze + tests (report)
+        id: qa
+        continue-on-error: true
+        run: |
+          set +e
+          {
+            echo "### flutter analyze"
+            flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1
+            a=$?
+            echo ""
+            echo "### flutter test"
+            flutter test 2>&1
+            t=$?
+            echo ""
+            echo "analyze_exit=$a test_exit=$t"
+            exit $(( a + t ))
+          } | tee qa-report.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Post QA report as commit comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY_FILE=qa-report.txt
+          head -c 60000 "$BODY_FILE" > qa-trimmed.txt
+          printf '**Android CI QA report** (`%s`)\n\n```\n' "${GITHUB_SHA::7}" > comment.md
+          cat qa-trimmed.txt >> comment.md
+          printf '\n```\n' >> comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md >/dev/null
+
+      - name: Fail job if QA failed
+        if: steps.qa.outcome == 'failure'
+        run: |
+          echo "Analyzer/tests reported problems — see the commit comment."
+          exit 1
