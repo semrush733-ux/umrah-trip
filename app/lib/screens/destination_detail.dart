@@ -12,6 +12,15 @@ import '../models/destination.dart';
 import '../models/trip.dart';
 import '../services/app_state.dart';
 import '../widgets/destination_card.dart';
+import 'umrah_guide_screen.dart';
+
+const _umrahGuideDestinations = {
+  'safa-marwah',
+  'masjid-nabawi',
+  'masjid-ayesha',
+  'abyar-ali',
+  'masjid-nimrah',
+};
 
 /// One-tap, real navigation: opens Google Maps turn-by-turn directions to the
 /// destination's verified coordinates. No simulated routes, ever.
@@ -307,6 +316,32 @@ class _DestinationDetailScreenState extends State<DestinationDetailScreen> {
                       ),
                     ),
                   const SizedBox(height: 10),
+
+                  if (d.bookingUrl != null) ...[
+                    FilledButton.tonalIcon(
+                      onPressed: () => launchUrl(Uri.parse(d.bookingUrl!),
+                          mode: LaunchMode.externalApplication),
+                      icon: const Icon(Icons.confirmation_number_rounded),
+                      label: Text(
+                          'Official permits & booking · ${Uri.parse(d.bookingUrl!).host}'),
+                    ),
+                    const SizedBox(height: 4),
+                    Center(
+                      child: Text(
+                          'Bookings are confirmed only by the official provider.',
+                          style: TextStyle(fontSize: 11.5, color: onSurfaceDim)),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (_umrahGuideDestinations.contains(d.id)) ...[
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const UmrahGuideScreen())),
+                      icon: const Icon(Icons.menu_book_rounded, size: 18),
+                      label: const Text('Umrah Guide — Ihram · Tawaf · Sa\'i'),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
 
                   // Action row: Add to Trip | Mark Visited | Save
                   Row(

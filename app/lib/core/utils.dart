@@ -45,6 +45,7 @@ const cityCenters = <CityCenter>[
   CityCenter('jeddah', 21.5433, 39.1728),
   CityCenter('riyadh', 24.7136, 46.6753),
   CityCenter('taif', 21.2854, 40.4248),
+  CityCenter('alula', 26.6086, 37.9230),
   CityCenter('eastern', 26.4207, 50.0888),
 ];
 

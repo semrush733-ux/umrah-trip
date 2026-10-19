@@ -19,6 +19,7 @@ class Destination {
   final List<String> historyRefs;
   final num? entryFee; // null = unknown/unverified; 0 = free
   final bool feeVerified;
+  final String? bookingUrl; // official permit/booking link (e.g. Nusuk)
   final String? openingHours;
   final bool hoursVerified;
   final int visitDurationMin;
@@ -49,6 +50,7 @@ class Destination {
     required this.historyRefs,
     this.entryFee,
     required this.feeVerified,
+    this.bookingUrl,
     this.openingHours,
     required this.hoursVerified,
     required this.visitDurationMin,
@@ -80,6 +82,7 @@ class Destination {
         historyRefs: List<String>.from(j['history_refs'] ?? const []),
         entryFee: j['entry_fee'] as num?,
         feeVerified: j['fee_verified'] == true,
+        bookingUrl: j['booking_url'] as String?,
         openingHours: j['opening_hours'] as String?,
         hoursVerified: j['hours_verified'] == true,
         visitDurationMin: (j['visit_duration_min'] as num?)?.toInt() ?? 30,

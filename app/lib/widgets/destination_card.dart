@@ -33,6 +33,10 @@ LinearGradient regionGradient(String region) {
       return const LinearGradient(
           colors: [Color(0xFF6E3F8C), Color(0xFF45265C)],
           begin: Alignment.topLeft, end: Alignment.bottomRight);
+    case 'alula':
+      return const LinearGradient(
+          colors: [Color(0xFFB0722F), Color(0xFF6E441B)],
+          begin: Alignment.topLeft, end: Alignment.bottomRight);
     default:
       return const LinearGradient(
           colors: [Color(0xFF2F6E8C), Color(0xFF1C4556)],
@@ -46,6 +50,7 @@ IconData regionIcon(String region) => switch (region) {
       'jeddah' => Icons.water_rounded,
       'riyadh' => Icons.account_balance_rounded,
       'taif' => Icons.terrain_rounded,
+      'alula' => Icons.landscape_rounded,
       _ => Icons.museum_rounded,
     };
 

@@ -11,6 +11,7 @@ import 'experiences_screen.dart';
 import 'memories_screen.dart';
 import 'pair_screen.dart';
 import 'sponsor_screen.dart';
+import 'umrah_guide_screen.dart';
 
 /// Guest-first profile: settings, language (EN/UR/AR + RTL), dark mode,
 /// Roman Urdu toggle, saved places, memories and budget. No forced sign-up.
@@ -88,6 +89,19 @@ class ProfileScreen extends StatelessWidget {
                   (app.themeMode == ThemeMode.system &&
                       MediaQuery.platformBrightnessOf(context) == Brightness.dark),
               onChanged: (v) => app.setThemeMode(v ? ThemeMode.dark : ThemeMode.light),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Umrah guide
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.menu_book_rounded, color: AppColors.emerald),
+              title: const Text('Umrah Guide'),
+              subtitle: const Text('Ihram · Tawaf · Sa\'i · Rawdah (Nusuk) — offline'),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const UmrahGuideScreen())),
             ),
           ),
           const SizedBox(height: 12),

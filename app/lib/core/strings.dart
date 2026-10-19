@@ -110,6 +110,7 @@ class S {
         'jeddah' => _t('Jeddah', 'جدہ', 'جدة'),
         'riyadh' => _t('Riyadh & Diriyah', 'ریاض و درعیہ', 'الرياض والدرعية'),
         'taif' => _t('Taif', 'طائف', 'الطائف'),
+        'alula' => _t('AlUla', 'العلا', 'العلا'),
         'eastern' => _t('Eastern Province', 'مشرقی صوبہ', 'المنطقة الشرقية'),
         _ => region,
       };
