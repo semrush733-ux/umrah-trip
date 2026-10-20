@@ -65,14 +65,9 @@ jobs:
             if [ -f "$f" ]; then echo "===== $f (tail) =====" >> faillog.txt; tail -c 45000 "$f" >> faillog.txt; fi
           done
           [ -s faillog.txt ] || echo "(no build log captured)" > faillog.txt
-          printf '**Android build FAILED** (`%s`)
-
-```
-' "${GITHUB_SHA::7}" > comment.md
+          printf '**Android build FAILED** (`%s`)\n\n```\n' "${GITHUB_SHA::7}" > comment.md
           cat faillog.txt >> comment.md
-          printf '
-```
-' >> comment.md
+          printf '\n```\n' >> comment.md
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md >/dev/null || true
 
       - name: Upload APK

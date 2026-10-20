@@ -45,14 +45,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           [ -f build-ios.log ] || echo "(no build log captured)" > build-ios.log
-          printf '**iOS build FAILED** (`%s`)
-
-```
-' "${GITHUB_SHA::7}" > comment.md
+          printf '**iOS build FAILED** (`%s`)\n\n```\n' "${GITHUB_SHA::7}" > comment.md
           tail -c 45000 build-ios.log >> comment.md
-          printf '
-```
-' >> comment.md
+          printf '\n```\n' >> comment.md
           gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md >/dev/null || true
 
       - name: Package unsigned IPA
