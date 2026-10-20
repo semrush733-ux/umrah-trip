@@ -49,9 +49,17 @@ class PairService {
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode(body))
           .timeout(timeout);
-      final Map<String, dynamic> j = r.body.isEmpty
-          ? {}
-          : (jsonDecode(r.body) as Map<String, dynamic>? ?? {});
+      Map<String, dynamic> j = {};
+      try {
+        j = r.body.isEmpty
+            ? {}
+            : (jsonDecode(r.body) as Map<String, dynamic>? ?? {});
+      } catch (_) {
+        // Server (or a firewall) returned non-JSON — surface what it said.
+        final snippet = r.body.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
+        return PairApiResult(false, {},
+            'Server HTTP ${r.statusCode}: ${snippet.substring(0, snippet.length > 120 ? 120 : snippet.length)}');
+      }
       if (r.statusCode == 200 && (j['ok'] == true)) {
         return PairApiResult(true, j);
       }

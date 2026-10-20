@@ -51,6 +51,7 @@ class PairState extends ChangeNotifier {
   String myName = '';
   bool sharingLocation = false;
   bool syncing = false;
+  bool uploadingPhoto = false;
   String? lastError;
   DateTime? lastSyncAt;
 
@@ -69,8 +70,12 @@ class PairState extends ChangeNotifier {
     code = prefs.getString('pair_code');
     token = prefs.getString('pair_token');
     myName = prefs.getString('pair_name') ?? '';
+    sharingLocation = prefs.getBool('pair_sharing') ?? false;
     notifyListeners();
-    if (paired) _startLoop();
+    if (paired) {
+      if (sharingLocation) app.refreshLocation(request: false);
+      _startLoop();
+    }
   }
 
   Future<void> setServer(String url) async {
@@ -153,8 +158,13 @@ class PairState extends ChangeNotifier {
   void setSharing(bool on) {
     sharingLocation = on;
     notifyListeners();
-    if (on) app.refreshLocation();
-    syncNow();
+    SharedPreferences.getInstance().then((p) => p.setBool('pair_sharing', on));
+    if (on) {
+      // Explicit user action → OK to show the OS permission prompt.
+      app.refreshLocation().then((_) => syncNow());
+    } else {
+      syncNow();
+    }
   }
 
   void _startLoop() {
@@ -262,19 +272,26 @@ class PairState extends ChangeNotifier {
       notifyListeners();
       return false;
     }
-    final r = await api.photo(
-      code: code!,
-      token: token!,
-      base64Jpeg: base64Encode(jpegBytes),
-      caption: caption,
-    );
-    if (r.ok) {
-      await syncNow();
-    } else {
-      lastError = r.error;
+    uploadingPhoto = true;
+    lastError = null;
+    notifyListeners();
+    try {
+      final r = await api.photo(
+        code: code!,
+        token: token!,
+        base64Jpeg: base64Encode(jpegBytes),
+        caption: caption,
+      );
+      if (r.ok) {
+        await syncNow();
+      } else {
+        lastError = r.error;
+      }
+      return r.ok;
+    } finally {
+      uploadingPhoto = false;
       notifyListeners();
     }
-    return r.ok;
   }
 
   /// Destinations BOTH of us have visited (for the shared experience page).

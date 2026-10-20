@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -399,6 +401,7 @@ class _PairScreenState extends State<PairScreen> {
       ),
       const SizedBox(height: 12),
 
+      // ---- Live location: toggle + in-app map (OpenStreetMap, no key) ----
       Card(
         child: Column(
           children: [
@@ -413,70 +416,154 @@ class _PairScreenState extends State<PairScreen> {
               value: pair.sharingLocation,
               onChanged: (v) => pair.setSharing(v),
             ),
+            _LiveMapCard(pair: pair),
             if (p != null)
-              ListTile(
-                leading: Icon(Icons.person_pin_circle_rounded,
-                    color: locFresh ? Colors.green : Colors.grey, size: 30),
-                title: Text('${p.name}\'s location',
-                    style: const TextStyle(fontWeight: FontWeight.w700)),
-                subtitle: Text(
-                  !p.sharing
-                      ? 'Not sharing right now'
-                      : p.lat == null
-                          ? 'Waiting for first fix…'
-                          : '${p.lat!.toStringAsFixed(5)}, ${p.lng!.toStringAsFixed(5)}'
-                              '${p.locAt != null ? ' · ${DateFormat('HH:mm:ss').format(p.locAt!)}' : ''}'
-                              '${locFresh ? ' · LIVE' : ' · stale'}',
-                ),
-                trailing: p.sharing && p.lat != null
-                    ? IconButton(
-                        icon: const Icon(Icons.map_rounded, color: AppColors.emerald),
-                        tooltip: 'Open in Maps',
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 6, 16, 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.favorite_rounded,
+                        size: 16, color: locFresh ? Colors.redAccent : Colors.grey),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        !p.sharing
+                            ? '${p.name}: location sharing OFF (unke phone par toggle on karwayen)'
+                            : p.lat == null
+                                ? '${p.name}: pehli location ka intezar… (unka app khula ho)'
+                                : '${p.name}: ${locFresh ? 'LIVE' : 'last seen'} ${p.locAt != null ? DateFormat('HH:mm:ss').format(p.locAt!) : ''}',
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: locFresh ? Colors.green : Colors.grey),
+                      ),
+                    ),
+                    if (p.sharing && p.lat != null)
+                      TextButton.icon(
+                        icon: const Icon(Icons.directions_rounded, size: 17),
+                        label: const Text('Route', style: TextStyle(fontSize: 12)),
                         onPressed: () => launchUrl(
                           Uri.parse(
-                              'https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}'),
+                              'https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}&travelmode=walking'),
                           mode: LaunchMode.externalApplication,
                         ),
-                      )
-                    : null,
+                      ),
+                  ],
+                ),
               ),
           ],
         ),
       ),
       const SizedBox(height: 12),
 
+      // ---- Photos — WhatsApp style: one tap, instant send ----
       Card(
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Send a photo to each other',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-              const SizedBox(height: 4),
-              const Text(
-                  'Camera opens after you allow the permission; the photo goes only to your paired partner.',
-                  style: TextStyle(fontSize: 12.5)),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text('Photos',
+                        style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                  ),
+                  if (pair.uploadingPhoto)
+                    const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                ],
+              ),
               const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
+                    flex: 2,
                     child: FilledButton.icon(
-                      onPressed: _busy ? null : () => _capture(ImageSource.camera),
-                      icon: const Icon(Icons.photo_camera_rounded),
-                      label: const Text('Camera'),
+                      style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 58),
+                          backgroundColor: AppColors.emerald),
+                      onPressed: (_busy || pair.uploadingPhoto)
+                          ? null
+                          : () => _capture(ImageSource.camera),
+                      icon: const Icon(Icons.photo_camera_rounded, size: 26),
+                      label: const Text('Photo bhejo (1-tap)',
+                          style: TextStyle(fontSize: 15)),
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _busy ? null : () => _capture(ImageSource.gallery),
-                      icon: const Icon(Icons.photo_library_rounded),
-                      label: const Text('Gallery'),
+                  SizedBox(
+                    width: 58,
+                    height: 58,
+                    child: OutlinedButton(
+                      style: OutlinedButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14))),
+                      onPressed: (_busy || pair.uploadingPhoto)
+                          ? null
+                          : () => _capture(ImageSource.gallery),
+                      child: const Icon(Icons.photo_library_rounded),
                     ),
                   ),
                 ],
               ),
+              const SizedBox(height: 4),
+              const Text(
+                  'Camera khulta hai → photo lo → khud-ba-khud partner ko chali jati hai.',
+                  style: TextStyle(fontSize: 11.5)),
+              if (pair.photos.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 86,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: pair.photos.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, i) {
+                      final ph = pair.photos[i];
+                      return GestureDetector(
+                        onTap: () => _viewPhoto(ph.url,
+                            '${ph.by} · ${DateFormat('d MMM HH:mm').format(ph.at)}'),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Stack(
+                            children: [
+                              Image.network(ph.url,
+                                  width: 86,
+                                  height: 86,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                      width: 86,
+                                      height: 86,
+                                      color: Colors.black12,
+                                      child: const Icon(
+                                          Icons.broken_image_rounded))),
+                              Positioned(
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                child: Container(
+                                  color: Colors.black.withValues(alpha: 0.45),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 2),
+                                  child: Text(ph.by,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      style: const TextStyle(
+                                          color: Colors.white, fontSize: 9.5)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -527,14 +614,59 @@ class _PairScreenState extends State<PairScreen> {
     ];
   }
 
+  void _viewPhoto(String url, String caption) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(8),
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              child: Center(
+                child: Image.network(url,
+                    fit: BoxFit.contain,
+                    loadingBuilder: (c, w, prog) => prog == null
+                        ? w
+                        : const Padding(
+                            padding: EdgeInsets.all(60),
+                            child: CircularProgressIndicator())),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.white),
+                onPressed: () => Navigator.pop(ctx),
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.5),
+                padding: const EdgeInsets.all(10),
+                child: Text(caption,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white, fontSize: 12.5)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _capture(ImageSource source) async {
     final pair = context.read<PairState>();
     await _run(() async {
       try {
         final shot = await ImagePicker().pickImage(
           source: source,
-          imageQuality: 55,
-          maxWidth: 1280,
+          imageQuality: 45,
+          maxWidth: 1080,
           requestFullMetadata: false,
         );
         if (shot == null) return;
@@ -552,6 +684,166 @@ class _PairScreenState extends State<PairScreen> {
       }
     });
   }
+}
+
+/// In-app live map (OpenStreetMap — works without any API key):
+/// shows MY pin and the PARTNER's pin together, updating with each sync.
+class _LiveMapCard extends StatefulWidget {
+  final PairState pair;
+  const _LiveMapCard({required this.pair});
+  @override
+  State<_LiveMapCard> createState() => _LiveMapCardState();
+}
+
+class _LiveMapCardState extends State<_LiveMapCard> {
+  final MapController _controller = MapController();
+  bool _didAutoFit = false;
+
+  LatLng? get _me {
+    final p = widget.pair.app.position;
+    return p == null ? null : LatLng(p.latitude, p.longitude);
+  }
+
+  LatLng? get _partner {
+    final p = widget.pair.partner;
+    return (p != null && p.sharing && p.lat != null && p.lng != null)
+        ? LatLng(p.lat!, p.lng!)
+        : null;
+  }
+
+  void _fit() {
+    final pts = [if (_me != null) _me!, if (_partner != null) _partner!];
+    if (pts.isEmpty) return;
+    try {
+      if (pts.length == 1) {
+        _controller.move(pts.first, 15);
+      } else {
+        _controller.fitCamera(CameraFit.coordinates(
+            coordinates: pts, padding: const EdgeInsets.all(48)));
+      }
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final me = _me;
+    final partner = _partner;
+    final center = partner ?? me ?? const LatLng(21.4225, 39.8262);
+    if (!_didAutoFit && (me != null || partner != null)) {
+      _didAutoFit = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fit());
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          height: 230,
+          child: Stack(
+            children: [
+              FlutterMap(
+                mapController: _controller,
+                options: MapOptions(
+                  initialCenter: center,
+                  initialZoom: 14,
+                  interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.bwpexperts.umrah_journey',
+                  ),
+                  MarkerLayer(markers: [
+                    if (me != null)
+                      Marker(
+                        point: me,
+                        width: 46,
+                        height: 46,
+                        child: const Column(children: [
+                          Icon(Icons.person_pin_circle_rounded,
+                              color: Colors.blue, size: 34),
+                          Text('Me',
+                              style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.blue)),
+                        ]),
+                      ),
+                    if (partner != null)
+                      Marker(
+                        point: partner,
+                        width: 60,
+                        height: 50,
+                        child: Column(children: [
+                          const Icon(Icons.favorite_rounded,
+                              color: Colors.redAccent, size: 30),
+                          Text(widget.pair.partner!.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.redAccent)),
+                        ]),
+                      ),
+                  ]),
+                ],
+              ),
+              // Attribution (OSM requirement)
+              Positioned(
+                left: 4,
+                bottom: 2,
+                child: Text('© OpenStreetMap',
+                    style: TextStyle(
+                        fontSize: 9, color: Colors.black.withValues(alpha: 0.6))),
+              ),
+              Positioned(
+                right: 8,
+                top: 8,
+                child: Column(children: [
+                  _mapBtn(Icons.center_focus_strong_rounded, 'Fit both', _fit),
+                  const SizedBox(height: 6),
+                  if (me != null)
+                    _mapBtn(Icons.my_location_rounded, 'Me',
+                        () => _controller.move(me, 16)),
+                  const SizedBox(height: 6),
+                  if (partner != null)
+                    _mapBtn(Icons.favorite_rounded, 'Partner',
+                        () => _controller.move(partner, 16)),
+                ]),
+              ),
+              if (me == null && partner == null)
+                Container(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'Location sharing on karein —\ndono ke pins yahin dikhen ge',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w700),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mapBtn(IconData icon, String tip, VoidCallback onTap) => Material(
+        color: Colors.white,
+        shape: const CircleBorder(),
+        elevation: 2,
+        child: IconButton(
+          tooltip: tip,
+          iconSize: 18,
+          visualDensity: VisualDensity.compact,
+          icon: Icon(icon, color: AppColors.emerald),
+          onPressed: onTap,
+        ),
+      );
 }
 
 /// Minimal QR scanner — returns the pairing code via Navigator.pop.
