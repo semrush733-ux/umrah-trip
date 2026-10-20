@@ -43,13 +43,37 @@ jobs:
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
           PAIR_API_BASE: ${{ secrets.PAIR_API_BASE }}
-        run: flutter build apk --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=PAIR_API_BASE=${PAIR_API_BASE:-}
+        run: |
+          set -o pipefail
+          flutter build apk --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=PAIR_API_BASE=${PAIR_API_BASE:-} 2>&1 | tee build-apk.log
 
       - name: Build release AAB
         env:
           MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
           PAIR_API_BASE: ${{ secrets.PAIR_API_BASE }}
-        run: flutter build appbundle --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=PAIR_API_BASE=${PAIR_API_BASE:-}
+        run: |
+          set -o pipefail
+          flutter build appbundle --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=PAIR_API_BASE=${PAIR_API_BASE:-} 2>&1 | tee build-aab.log
+
+      - name: Post build failure log as commit comment
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          : > faillog.txt
+          for f in build-apk.log build-aab.log; do
+            if [ -f "$f" ]; then echo "===== $f (tail) =====" >> faillog.txt; tail -c 45000 "$f" >> faillog.txt; fi
+          done
+          [ -s faillog.txt ] || echo "(no build log captured)" > faillog.txt
+          printf '**Android build FAILED** (`%s`)
+
+```
+' "${GITHUB_SHA::7}" > comment.md
+          cat faillog.txt >> comment.md
+          printf '
+```
+' >> comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md >/dev/null || true
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -104,6 +128,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           BODY_FILE=qa-report.txt
+          [ -f "$BODY_FILE" ] || echo "(QA step did not run — build failed earlier)" > "$BODY_FILE"
           head -c 60000 "$BODY_FILE" > qa-trimmed.txt
           printf '**Android CI QA report** (`%s`)\n\n```\n' "${GITHUB_SHA::7}" > comment.md
           cat qa-trimmed.txt >> comment.md
