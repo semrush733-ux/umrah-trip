@@ -87,6 +87,7 @@ def patch_ios_plist() -> None:
     )
     data["GMapsAPIKey"] = MAPS_KEY
     # TTS / AVSpeech needs no permission; url_launcher queries:
+    data["MinimumOSVersion"] = "15.5"
     data.setdefault("LSApplicationQueriesSchemes", [])
     for scheme in ("comgooglemaps", "maps"):
         if scheme not in data["LSApplicationQueriesSchemes"]:
@@ -127,12 +128,27 @@ def patch_ios_podfile() -> None:
         print("!! Podfile not found yet — will exist after first pod setup")
         return
     text = pf.read_text()
+    # mobile_scanner (MLKit) needs iOS 15.5+
     if re.search(r"^platform :ios", text, flags=re.M):
-        text = re.sub(r"^#?\s*platform :ios.*$", "platform :ios, '14.0'", text, count=1, flags=re.M)
+        text = re.sub(r"^#?\s*platform :ios.*$", "platform :ios, '15.5'", text, count=1, flags=re.M)
     else:
-        text = "platform :ios, '14.0'\n" + text
+        text = "platform :ios, '15.5'\n" + text
     pf.write_text(text)
-    print("ok: Podfile platform set to iOS 14.0")
+    print("ok: Podfile platform set to iOS 15.5")
+
+
+def patch_ios_deployment_target() -> None:
+    """Xcode project min iOS → 15.5 (mobile_scanner/MLKit requirement)."""
+    pbx = APP / "ios/Runner.xcodeproj/project.pbxproj"
+    if not pbx.exists():
+        print("!! project.pbxproj not found — run flutter create first")
+        return
+    t = pbx.read_text()
+    t2 = re.sub(r"IPHONEOS_DEPLOYMENT_TARGET = \d+(\.\d+)?;",
+                "IPHONEOS_DEPLOYMENT_TARGET = 15.5;", t)
+    if t2 != t:
+        pbx.write_text(t2)
+    print("ok: IPHONEOS_DEPLOYMENT_TARGET = 15.5")
 
 
 def patch_android_desugaring() -> None:
@@ -280,5 +296,6 @@ if __name__ == "__main__":
     patch_ios_plist()
     patch_ios_appdelegate()
     patch_ios_podfile()
+    patch_ios_deployment_target()
     patch_android_signing()
     print("Platform patching complete.")
