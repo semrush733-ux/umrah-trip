@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: true
@@ -47,6 +50,17 @@ jobs:
         with:
           name: UmrahTrip-unsigned-ipa
           path: app/build/ios/iphoneos/UmrahTrip-unsigned.ipa
+
+      # Public, login-free download link: refreshes the rolling "latest" release.
+      - name: Publish IPA to 'latest' release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "Umrah Trip — latest builds" \
+              --notes "Rolling release: freshest APK/AAB/IPA from main. IPA is unsigned (install via Sideloadly/AltStore)."
+          gh release upload latest app/build/ios/iphoneos/UmrahTrip-unsigned.ipa --clobber
 
 # Signed IPA / TestFlight: add Apple certificates + provisioning profile as
 # repo secrets, import them with apple-actions/import-codesign-certs, drop

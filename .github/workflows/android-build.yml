@@ -60,6 +60,19 @@ jobs:
           name: UmrahTrip-release-aab
           path: app/build/app/outputs/bundle/release/app-release.aab
 
+      # Public, login-free download links on the rolling "latest" release.
+      - name: Publish APK + AAB to 'latest' release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "Umrah Trip — latest builds" \
+              --notes "Rolling release: freshest APK/AAB/IPA from main. IPA is unsigned (install via Sideloadly/AltStore)."
+          cp app/build/app/outputs/flutter-apk/app-release.apk UmrahTrip.apk
+          cp app/build/app/outputs/bundle/release/app-release.aab UmrahTrip.aab
+          gh release upload latest UmrahTrip.apk UmrahTrip.aab --clobber
+
       # ---- Quality gates: run after artifacts so a style issue never blocks
       # a usable build; full output is posted as a commit comment. The job
       # still turns red if analysis finds errors or tests fail. ----
