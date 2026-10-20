@@ -9,7 +9,7 @@ $apple_svg = '<svg viewBox="0 0 24 24"><path d="M16.37 12.65c0-2.37 1.94-3.5 2.0
 <section class="ut-hero">
   <div class="ut-container">
     <div class="ut-hero-copy">
-      <span class="ut-kicker">🕋 56 Ziyarat &amp; Travel Destinations</span>
+      <span class="ut-kicker">🕋 57 Ziyarat &amp; Travel Destinations</span>
       <h1>Your Smart <span class="gold">Umrah</span> &amp;<br>Ziyarat Companion</h1>
       <p class="ut-sub">Discover verified holy sites, navigate with one tap, plan every day of your journey, and keep your travel memories — even offline. English · اردو · العربية</p>
       <div class="ut-btns">
@@ -18,7 +18,7 @@ $apple_svg = '<svg viewBox="0 0 24 24"><path d="M16.37 12.65c0-2.37 1.94-3.5 2.0
       </div>
       <p class="ut-note">Android: install directly. iPhone: sideload via AltStore / Sideloadly.</p>
       <div class="ut-stats">
-        <div class="ut-stat"><b>56</b><span>Destinations</span></div>
+        <div class="ut-stat"><b>57</b><span>Destinations</span></div>
         <div class="ut-stat"><b>7</b><span>Regions of KSA</span></div>
         <div class="ut-stat"><b>3</b><span>Languages + RTL</span></div>
         <div class="ut-stat"><b>100%</b><span>Offline-first</span></div>
@@ -41,7 +41,7 @@ $apple_svg = '<svg viewBox="0 0 24 24"><path d="M16.37 12.65c0-2.37 1.94-3.5 2.0
     <div class="ut-gold-line"></div>
     <p class="ut-lede">Built for the blessed journey — accurate information, honest navigation, and tools that work without internet.</p>
     <div class="ut-grid">
-      <div class="ut-card ut-reveal"><div class="ut-ico">🕋</div><h3>56 Verified Destinations</h3><p>Makkah, Madinah, Jeddah, Taif, Riyadh, AlUla &amp; Eastern Province — authentic history with references, Urdu &amp; Arabic names, verified GPS.</p></div>
+      <div class="ut-card ut-reveal"><div class="ut-ico">🕋</div><h3>57 Verified Destinations</h3><p>Makkah, Madinah, Jeddah, Taif, Riyadh, AlUla &amp; Eastern Province — authentic history with references, Urdu &amp; Arabic names, verified GPS.</p></div>
       <div class="ut-card ut-reveal"><div class="ut-ico">🧭</div><h3>One-Tap Navigation</h3><p>Live GPS position, real distances, and turn-by-turn directions to every ziyarat via Google or Apple Maps.</p></div>
       <div class="ut-card ut-reveal"><div class="ut-ico">📅</div><h3>Date-wise Trip Planner</h3><p>Plan each day, set visit times, drag to reorder stops, and get a smart visiting order for the whole day.</p></div>
       <div class="ut-card ut-reveal"><div class="ut-ico">✅</div><h3>Visited Tracking</h3><p>Mark places visited, GPS check-in, personal notes — your complete travel memories, saved forever.</p></div>

@@ -18,10 +18,10 @@ void main() {
         .toList();
   });
 
-  test('exactly 56 destinations with unique stable ids', () {
-    expect(all.length, 56);
+  test('exactly 57 destinations with unique stable ids', () {
+    expect(all.length, 57);
     final ids = all.map((d) => d.id).toSet();
-    expect(ids.length, 56, reason: 'duplicate destination ids found');
+    expect(ids.length, 57, reason: 'duplicate destination ids found');
   });
 
   test('original 31 destinations are preserved (no overwrite/delete)', () {

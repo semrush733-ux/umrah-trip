@@ -446,14 +446,72 @@ class _DestinationDetailScreenState extends State<DestinationDetailScreen> {
                     const SizedBox(height: 16),
                   ],
 
-                  if (d.nearby.isNotEmpty) ...[
-                    _SectionTitle('Nearby'),
-                    Wrap(
-                      spacing: 8,
-                      children: d.nearby.map((n) => Chip(label: Text(n))).toList(),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
+                  // Nearby suggestions — nearest destinations, clickable,
+                  // with straight-line distance from THIS place.
+                  Builder(builder: (context) {
+                    final nearby = app.repo.all
+                        .where((o) => o.id != d.id)
+                        .toList()
+                      ..sort((a, b) => haversineKm(d.lat, d.lng, a.lat, a.lng)
+                          .compareTo(haversineKm(d.lat, d.lng, b.lat, b.lng)));
+                    final top = nearby.take(5).toList();
+                    if (top.isEmpty) return const SizedBox.shrink();
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _SectionTitle('Nearby Ziyarat — aage kahan?'),
+                        ...top.map((o) {
+                          final km = haversineKm(d.lat, d.lng, o.lat, o.lng);
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              dense: true,
+                              leading: Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  gradient: regionGradient(o.region),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Icon(categoryIcon(o),
+                                    color: AppColors.goldLight, size: 20),
+                              ),
+                              title: Text(o.nameEn,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.w700, fontSize: 14)),
+                              subtitle: Text(
+                                  '${formatKm(km)} ${s.straightLine} · ${s.regionName(o.region)}',
+                                  style: const TextStyle(fontSize: 11.5)),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.navigation_rounded,
+                                    color: AppColors.emerald, size: 20),
+                                onPressed: () => launchNavigation(context, o),
+                              ),
+                              onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                      builder: (_) => DestinationDetailScreen(
+                                          destination: o))),
+                            ),
+                          );
+                        }),
+                        if (d.nearby.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Wrap(
+                              spacing: 8,
+                              children: d.nearby
+                                  .map((n) => Chip(
+                                      label: Text(n,
+                                          style: const TextStyle(fontSize: 12))))
+                                  .toList(),
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                      ],
+                    );
+                  }),
 
                   if (d.sourceUrl != null)
                     TextButton.icon(

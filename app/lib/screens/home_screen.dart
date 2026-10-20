@@ -13,7 +13,9 @@ import '../widgets/destination_card.dart';
 import 'ai_screen.dart';
 import 'destination_detail.dart';
 import 'duas_screen.dart';
+import 'journey_guide_screen.dart';
 import 'prayer_qibla_screen.dart';
+import 'recommendations_screen.dart';
 import 'root.dart';
 import 'tasbeeh_screen.dart';
 import 'transport_screen.dart';
@@ -216,6 +218,22 @@ class _HomeScreenState extends State<HomeScreen> {
                     label: 'AI Assistant',
                     onTap: () => Navigator.of(context).push(
                         MaterialPageRoute(builder: (_) => const AiScreen()))),
+                _QuickAction(
+                    icon: Icons.flight_takeoff_rounded,
+                    label: 'Journey Guide',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const JourneyGuideScreen()))),
+                _QuickAction(
+                    icon: Icons.recommend_rounded,
+                    label: 'Kahan Jayen?',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const RecommendationsScreen()))),
+                _QuickAction(
+                    icon: Icons.rule_rounded,
+                    label: 'Faraiz',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) =>
+                            const JourneyGuideScreen(initialTab: 1)))),
               ],
             ),
             const SizedBox(height: 14),
