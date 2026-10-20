@@ -22,7 +22,6 @@ class PairScreen extends StatefulWidget {
 class _PairScreenState extends State<PairScreen> {
   final _nameCtrl = TextEditingController();
   final _codeCtrl = TextEditingController();
-  final _serverCtrl = TextEditingController();
   bool _busy = false;
 
   @override
@@ -30,14 +29,12 @@ class _PairScreenState extends State<PairScreen> {
     super.initState();
     final pair = context.read<PairState>();
     _nameCtrl.text = pair.myName;
-    _serverCtrl.text = pair.api.baseUrl;
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
     _codeCtrl.dispose();
-    _serverCtrl.dispose();
     super.dispose();
   }
 
@@ -88,43 +85,7 @@ class _PairScreenState extends State<PairScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('1) Server',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-              const SizedBox(height: 6),
-              const Text(
-                  'Your WordPress site with the "BWP Umrah Pair" plugin installed.',
-                  style: TextStyle(fontSize: 12.5)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _serverCtrl,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  hintText: 'https://your-site.com',
-                  border: OutlineInputBorder(),
-                  isDense: true,
-                ),
-                onSubmitted: (v) => pair.setServer(v),
-              ),
-              const SizedBox(height: 6),
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: TextButton(
-                  onPressed: () => pair.setServer(_serverCtrl.text),
-                  child: const Text('Save server'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      const SizedBox(height: 12),
-      Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('2) Your name',
+              const Text('1) Your name',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
               const SizedBox(height: 8),
               TextField(
@@ -146,7 +107,7 @@ class _PairScreenState extends State<PairScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('3) Pair your two phones',
+              const Text('2) Pair your two phones',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
               const SizedBox(height: 10),
               FilledButton.icon(

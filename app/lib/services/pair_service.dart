@@ -6,10 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// REST client for the "BWP Umrah Pair" WordPress plugin
 /// (see wordpress-plugin/ in this repo — install it on any WP site).
 ///
-/// The server base URL is configured at runtime on the Pair screen
-/// (e.g. https://bwpexperts.com) and may be pre-seeded at build time with
-///   --dart-define=PAIR_API_BASE=https://your-site.com
-const String kDefaultPairApiBase = String.fromEnvironment('PAIR_API_BASE');
+/// The pairing server is fixed to the official Umrah Trip site and hidden
+/// from the UI. It can still be overridden at build time with
+///   --dart-define=PAIR_API_BASE=https://other-site.com
+const String kDefaultPairApiBase = String.fromEnvironment(
+  'PAIR_API_BASE',
+  defaultValue: 'https://umrahtrip.sbs',
+);
 
 class PairApiResult {
   final bool ok;
@@ -24,7 +27,8 @@ class PairService {
 
   Future<void> loadBaseUrl() async {
     final prefs = await SharedPreferences.getInstance();
-    baseUrl = prefs.getString('pair_base_url') ?? kDefaultPairApiBase;
+    final saved = prefs.getString('pair_base_url');
+    baseUrl = (saved != null && saved.startsWith('http')) ? saved : kDefaultPairApiBase;
   }
 
   Future<void> saveBaseUrl(String url) async {
@@ -53,6 +57,18 @@ class PairService {
       }
       return PairApiResult(false, j, j['error']?.toString() ?? 'HTTP ${r.statusCode}');
     } catch (e) {
+      // Default server: if https is unreachable (e.g. SSL not yet installed),
+      // fall back to http once and remember the working scheme.
+      if (baseUrl == 'https://umrahtrip.sbs') {
+        baseUrl = 'http://umrahtrip.sbs';
+        final retry = await _post(name, body, timeout: timeout);
+        if (retry.ok) {
+          (await SharedPreferences.getInstance())
+              .setString('pair_base_url', baseUrl);
+          return retry;
+        }
+        baseUrl = 'https://umrahtrip.sbs';
+      }
       return PairApiResult(false, {}, 'Network: $e');
     }
   }
