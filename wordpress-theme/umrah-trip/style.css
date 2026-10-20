@@ -1,0 +1,117 @@
+/*
+Theme Name: Umrah Trip
+Theme URI: https://bwpexperts.com
+Author: BWP Experts
+Author URI: https://bwpexperts.com
+Description: Premium landing theme for the Umrah Trip app — Your Smart Umrah & Ziyarat Companion. Emerald & gold Saudi-inspired design, app download buttons, features grid, sponsor section. Lightweight starter, easy to extend.
+Version: 1.0.0
+Requires at least: 5.8
+Tested up to: 6.7
+Requires PHP: 7.4
+License: GPL-2.0-or-later
+Text Domain: umrah-trip
+*/
+
+:root {
+  --ut-emerald: #086B58;
+  --ut-emerald-dark: #054D40;
+  --ut-ivory: #F8F7F2;
+  --ut-gold: #C8A96B;
+  --ut-gold-light: #E2CFA3;
+  --ut-slate: #18242B;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', Tahoma, system-ui, -apple-system, sans-serif;
+  background: var(--ut-ivory);
+  color: var(--ut-slate);
+  line-height: 1.6;
+}
+
+img { max-width: 100%; height: auto; }
+a { color: var(--ut-emerald); text-decoration: none; }
+
+.ut-container { max-width: 1080px; margin: 0 auto; padding: 0 20px; }
+
+/* Header */
+.ut-header {
+  background: linear-gradient(135deg, var(--ut-emerald), var(--ut-emerald-dark));
+  color: #fff;
+  padding: 14px 0;
+  position: sticky; top: 0; z-index: 50;
+  box-shadow: 0 2px 14px rgba(0,0,0,.18);
+}
+.ut-header .ut-container { display: flex; align-items: center; gap: 14px; }
+.ut-header img.ut-logo { width: 46px; height: 46px; border-radius: 10px; }
+.ut-header .ut-site-title { font-size: 1.25rem; font-weight: 800; color: #fff; letter-spacing: .5px; }
+.ut-header .ut-tagline { font-size: .72rem; color: var(--ut-gold-light); display: block; }
+.ut-header nav { margin-inline-start: auto; }
+.ut-header nav a { color: #fff; margin-inline-start: 18px; font-weight: 600; font-size: .95rem; }
+.ut-header nav a:hover { color: var(--ut-gold-light); }
+
+/* Hero */
+.ut-hero {
+  background:
+    radial-gradient(ellipse at 50% -20%, rgba(200,169,107,.35), transparent 55%),
+    linear-gradient(160deg, var(--ut-emerald) 0%, var(--ut-emerald-dark) 70%, #032B24 100%);
+  color: #fff; text-align: center; padding: 72px 20px 84px;
+}
+.ut-hero img.ut-hero-logo {
+  width: 190px; height: 190px; border-radius: 50%;
+  box-shadow: 0 0 70px rgba(200,169,107,.45);
+  animation: ut-pop .9s cubic-bezier(.2,1.4,.4,1) both;
+}
+@keyframes ut-pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.ut-hero h1 { font-size: 2.6rem; letter-spacing: 4px; margin: 22px 0 6px; font-weight: 800; }
+.ut-hero p.ut-sub { color: var(--ut-gold-light); font-size: 1.05rem; letter-spacing: 1px; }
+.ut-hero .ut-btns { margin-top: 30px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.ut-btn {
+  display: inline-block; padding: 14px 28px; border-radius: 14px;
+  font-weight: 800; font-size: 1rem; transition: transform .15s, box-shadow .15s;
+}
+.ut-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(0,0,0,.25); }
+.ut-btn-gold { background: var(--ut-gold); color: var(--ut-slate); }
+.ut-btn-outline { border: 2px solid var(--ut-gold-light); color: #fff; }
+.ut-hero .ut-note { margin-top: 14px; font-size: .78rem; color: rgba(255,255,255,.65); }
+
+/* Sections */
+.ut-section { padding: 64px 0; }
+.ut-section h2 { text-align: center; font-size: 1.9rem; font-weight: 800; margin-bottom: 8px; }
+.ut-section .ut-lede { text-align: center; color: #5a6a72; max-width: 640px; margin: 0 auto 38px; }
+.ut-gold-line { width: 70px; height: 4px; background: var(--ut-gold); border-radius: 2px; margin: 10px auto 26px; }
+
+.ut-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+.ut-card {
+  background: #fff; border-radius: 18px; padding: 26px 22px;
+  box-shadow: 0 4px 20px rgba(24,36,43,.07);
+  border-top: 3px solid var(--ut-gold);
+}
+.ut-card .ut-ico { font-size: 1.9rem; }
+.ut-card h3 { margin: 10px 0 6px; font-size: 1.08rem; }
+.ut-card p { font-size: .92rem; color: #4a5a64; }
+
+/* Sponsor */
+.ut-sponsor { background: #fff; text-align: center; }
+.ut-sponsor img { width: 170px; border-radius: 50%; box-shadow: 0 6px 30px rgba(24,36,43,.14); }
+.ut-sponsor .ut-sp-label { letter-spacing: 3px; font-size: .8rem; color: #7a8a92; margin-top: 18px; text-transform: uppercase; }
+.ut-sponsor h2 { color: var(--ut-emerald); margin-top: 2px; }
+
+/* Content pages */
+.ut-content { background: #fff; border-radius: 18px; padding: 34px; margin: 40px auto; box-shadow: 0 4px 20px rgba(24,36,43,.07); }
+.ut-content h1, .ut-content h2 { margin-bottom: .6em; }
+.ut-content p { margin-bottom: 1em; }
+
+/* Footer */
+.ut-footer {
+  background: var(--ut-emerald-dark); color: rgba(255,255,255,.85);
+  text-align: center; padding: 34px 20px; font-size: .9rem;
+}
+.ut-footer .gold { color: var(--ut-gold-light); }
+
+@media (max-width: 640px) {
+  .ut-hero h1 { font-size: 1.9rem; letter-spacing: 2px; }
+  .ut-hero img.ut-hero-logo { width: 140px; height: 140px; }
+  .ut-header nav a { margin-inline-start: 12px; font-size: .85rem; }
+}

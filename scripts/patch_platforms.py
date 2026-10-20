@@ -5,8 +5,12 @@ permissions, metadata and keys Umrah Trip needs.
 Idempotent: safe to run repeatedly (locally and in CI).
 Run from the app/ directory:  python3 ../scripts/patch_platforms.py
 Env:
-  MAPS_API_KEY   optional Google Maps key injected into both platforms.
+  MAPS_API_KEY              optional Google Maps key injected into both platforms.
+  ANDROID_KEYSTORE_BASE64   optional release keystore (base64 .jks) — when set
+  ANDROID_KEYSTORE_PASSWORD together with this, release APK/AAB are signed with
+  ANDROID_KEY_ALIAS         the permanent Umrah Trip key (same app forever).
 """
+import base64
 import os
 import plistlib
 import re
@@ -15,6 +19,9 @@ from pathlib import Path
 
 APP = Path.cwd()
 MAPS_KEY = os.environ.get("MAPS_API_KEY", "")
+KS_B64 = os.environ.get("ANDROID_KEYSTORE_BASE64", "")
+KS_PASS = os.environ.get("ANDROID_KEYSTORE_PASSWORD", "")
+KS_ALIAS = os.environ.get("ANDROID_KEY_ALIAS", "umrahtrip")
 
 
 def patch_android_manifest() -> None:
@@ -125,6 +132,92 @@ def patch_ios_podfile() -> None:
     print("ok: Podfile platform set to iOS 14.0")
 
 
+def patch_android_signing() -> None:
+    """Sign release builds with the permanent Umrah Trip keystore when the
+    ANDROID_KEYSTORE_* env vars are present (CI secrets / local env). Without
+    them the default debug signing is kept, so builds never break."""
+    if not KS_B64 or not KS_PASS:
+        print("-- no ANDROID_KEYSTORE_* env: keeping debug signing")
+        return
+    app_dir = APP / "android/app"
+    if not app_dir.exists():
+        print("!! android/app missing — run flutter create first")
+        return
+    (app_dir / "release.jks").write_bytes(base64.b64decode(KS_B64))
+    (APP / "android/key.properties").write_text(
+        f"storeFile=release.jks\nstorePassword={KS_PASS}\n"
+        f"keyPassword={KS_PASS}\nkeyAlias={KS_ALIAS}\n"
+    )
+    kts = app_dir / "build.gradle.kts"
+    groovy = app_dir / "build.gradle"
+    if kts.exists():
+        t = kts.read_text()
+        if "key.properties" not in t:
+            loader = (
+                "import java.util.Properties\n"
+                "import java.io.FileInputStream\n\n"
+                "val keystoreProperties = Properties()\n"
+                "val keystorePropertiesFile = rootProject.file(\"key.properties\")\n"
+                "if (keystorePropertiesFile.exists()) {\n"
+                "    keystoreProperties.load(FileInputStream(keystorePropertiesFile))\n"
+                "}\n\n"
+            )
+            t = loader + t
+            signing = (
+                "    signingConfigs {\n"
+                "        create(\"release\") {\n"
+                "            if (keystorePropertiesFile.exists()) {\n"
+                "                keyAlias = keystoreProperties[\"keyAlias\"] as String\n"
+                "                keyPassword = keystoreProperties[\"keyPassword\"] as String\n"
+                "                storeFile = file(keystoreProperties[\"storeFile\"] as String)\n"
+                "                storePassword = keystoreProperties[\"storePassword\"] as String\n"
+                "            }\n"
+                "        }\n"
+                "    }\n"
+            )
+            t = re.sub(r"(android\s*\{\n)", r"\1" + signing, t, count=1)
+            t = t.replace(
+                'signingConfig = signingConfigs.getByName("debug")',
+                'signingConfig = if (keystorePropertiesFile.exists()) '
+                'signingConfigs.getByName("release") else signingConfigs.getByName("debug")',
+            )
+            kts.write_text(t)
+        print("ok: release signing wired (build.gradle.kts)")
+    elif groovy.exists():
+        t = groovy.read_text()
+        if "key.properties" not in t:
+            loader = (
+                "def keystoreProperties = new Properties()\n"
+                "def keystorePropertiesFile = rootProject.file('key.properties')\n"
+                "if (keystorePropertiesFile.exists()) {\n"
+                "    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))\n"
+                "}\n\n"
+            )
+            t = loader + t
+            signing = (
+                "    signingConfigs {\n"
+                "        release {\n"
+                "            if (keystorePropertiesFile.exists()) {\n"
+                "                keyAlias keystoreProperties['keyAlias']\n"
+                "                keyPassword keystoreProperties['keyPassword']\n"
+                "                storeFile file(keystoreProperties['storeFile'])\n"
+                "                storePassword keystoreProperties['storePassword']\n"
+                "            }\n"
+                "        }\n"
+                "    }\n"
+            )
+            t = re.sub(r"(android\s*\{\n)", r"\1" + signing, t, count=1)
+            t = t.replace(
+                "signingConfig signingConfigs.debug",
+                "signingConfig keystorePropertiesFile.exists() ? "
+                "signingConfigs.release : signingConfigs.debug",
+            )
+            groovy.write_text(t)
+        print("ok: release signing wired (build.gradle)")
+    else:
+        print("!! no build.gradle(.kts) found")
+
+
 if __name__ == "__main__":
     if not (APP / "pubspec.yaml").exists():
         sys.exit("Run this from the app/ directory (pubspec.yaml not found).")
@@ -132,4 +225,5 @@ if __name__ == "__main__":
     patch_ios_plist()
     patch_ios_appdelegate()
     patch_ios_podfile()
+    patch_android_signing()
     print("Platform patching complete.")
