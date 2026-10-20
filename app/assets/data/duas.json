@@ -1,0 +1,129 @@
+{
+  "categories": [
+    {
+      "id": "umrah",
+      "title_en": "Umrah Duas",
+      "title_ur": "عمرہ کی دعائیں",
+      "items": [
+        {
+          "title": "Talbiyah",
+          "arabic": "لَبَّيْكَ اللَّهُمَّ لَبَّيْكَ، لَبَّيْكَ لَا شَرِيكَ لَكَ لَبَّيْكَ، إِنَّ الْحَمْدَ وَالنِّعْمَةَ لَكَ وَالْمُلْكَ، لَا شَرِيكَ لَكَ",
+          "translit": "Labbayk Allahumma labbayk, labbayka la sharika laka labbayk, innal-hamda wan-ni'mata laka wal-mulk, la sharika lak",
+          "urdu": "حاضر ہوں اے اللہ میں حاضر ہوں، تیرا کوئی شریک نہیں، بیشک تمام تعریفیں، نعمتیں اور بادشاہی تیری ہی ہے",
+          "english": "Here I am, O Allah, here I am. You have no partner. All praise, favour and sovereignty are Yours.",
+          "ref": "Muslim 1184"
+        },
+        {
+          "title": "On seeing the Kaaba",
+          "arabic": "اللَّهُمَّ زِدْ هَذَا الْبَيْتَ تَشْرِيفًا وَتَعْظِيمًا وَتَكْرِيمًا وَمَهَابَةً",
+          "translit": "Allahumma zid hadhal-bayta tashrifan wa ta'ziman wa takriman wa mahabah",
+          "urdu": "اے اللہ اس گھر کی شرافت، عظمت، عزت اور ہیبت میں اضافہ فرما",
+          "english": "O Allah, increase this House in honour, veneration, nobility and awe.",
+          "ref": "Reported practice of the salaf"
+        },
+        {
+          "title": "Between Yemeni corner & Black Stone",
+          "arabic": "رَبَّنَا آتِنَا فِي الدُّنْيَا حَسَنَةً وَفِي الْآخِرَةِ حَسَنَةً وَقِنَا عَذَابَ النَّارِ",
+          "translit": "Rabbana atina fid-dunya hasanah wa fil-akhirati hasanah wa qina 'adhaban-nar",
+          "urdu": "اے ہمارے رب! ہمیں دنیا میں بھلائی دے اور آخرت میں بھلائی دے اور ہمیں آگ کے عذاب سے بچا",
+          "english": "Our Lord, give us good in this world and good in the Hereafter, and protect us from the punishment of the Fire.",
+          "ref": "Qur'an 2:201; Abu Dawud 1892"
+        },
+        {
+          "title": "On Safa & Marwah",
+          "arabic": "إِنَّ الصَّفَا وَالْمَرْوَةَ مِنْ شَعَائِرِ اللَّهِ",
+          "translit": "Innas-Safa wal-Marwata min sha'a'irillah",
+          "urdu": "بیشک صفا اور مروہ اللہ کی نشانیوں میں سے ہیں",
+          "english": "Indeed, as-Safa and al-Marwah are among the symbols of Allah.",
+          "ref": "Qur'an 2:158"
+        },
+        {
+          "title": "Drinking Zamzam",
+          "arabic": "اللَّهُمَّ إِنِّي أَسْأَلُكَ عِلْمًا نَافِعًا وَرِزْقًا وَاسِعًا وَشِفَاءً مِنْ كُلِّ دَاءٍ",
+          "translit": "Allahumma inni as'aluka 'ilman nafi'an wa rizqan wasi'an wa shifa'an min kulli da'",
+          "urdu": "اے اللہ میں تجھ سے نفع دینے والا علم، کشادہ رزق اور ہر بیماری سے شفا مانگتا ہوں",
+          "english": "O Allah, I ask You for beneficial knowledge, abundant provision and cure from every illness.",
+          "ref": "Du'a of Ibn Abbas (RA) — Hakim"
+        }
+      ]
+    },
+    {
+      "id": "travel",
+      "title_en": "Travel Duas",
+      "title_ur": "سفر کی دعائیں",
+      "items": [
+        {
+          "title": "Boarding / starting the journey",
+          "arabic": "سُبْحَانَ الَّذِي سَخَّرَ لَنَا هَذَا وَمَا كُنَّا لَهُ مُقْرِنِينَ وَإِنَّا إِلَى رَبِّنَا لَمُنْقَلِبُونَ",
+          "translit": "Subhanalladhi sakhkhara lana hadha wa ma kunna lahu muqrinin wa inna ila rabbina lamunqalibun",
+          "urdu": "پاک ہے وہ ذات جس نے اسے ہمارے قابو میں دیا حالانکہ ہم اسے قابو نہیں کر سکتے تھے، اور ہم اپنے رب ہی کی طرف لوٹنے والے ہیں",
+          "english": "Glory to Him who subjected this to us, and we could not have done it ourselves. Surely to our Lord we shall return.",
+          "ref": "Qur'an 43:13-14; Muslim 1342"
+        },
+        {
+          "title": "Entering a city",
+          "arabic": "اللَّهُمَّ بَارِكْ لَنَا فِيهَا",
+          "translit": "Allahumma barik lana fiha",
+          "urdu": "اے اللہ ہمارے لیے اس (شہر) میں برکت عطا فرما",
+          "english": "O Allah, bless us in it.",
+          "ref": "From the sunnah of entering towns"
+        },
+        {
+          "title": "Entering the masjid",
+          "arabic": "اللَّهُمَّ افْتَحْ لِي أَبْوَابَ رَحْمَتِكَ",
+          "translit": "Allahummaftah li abwaba rahmatik",
+          "urdu": "اے اللہ میرے لیے اپنی رحمت کے دروازے کھول دے",
+          "english": "O Allah, open for me the gates of Your mercy.",
+          "ref": "Muslim 713"
+        },
+        {
+          "title": "Visiting the graves (Baqi / Uhud)",
+          "arabic": "السَّلَامُ عَلَيْكُمْ أَهْلَ الدِّيَارِ مِنَ الْمُؤْمِنِينَ وَالْمُسْلِمِينَ وَإِنَّا إِنْ شَاءَ اللَّهُ بِكُمْ لَاحِقُونَ",
+          "translit": "Assalamu 'alaykum ahlad-diyari minal-mu'minina wal-muslimin, wa inna in sha' Allahu bikum lahiqun",
+          "urdu": "سلام ہو تم پر اے مومنوں اور مسلمانوں کے گھر والو، اور ہم بھی ان شاءاللہ تم سے ملنے والے ہیں",
+          "english": "Peace be upon you, O believing inhabitants of these abodes. Allah willing, we shall join you.",
+          "ref": "Muslim 975"
+        }
+      ]
+    },
+    {
+      "id": "azkar",
+      "title_en": "Daily Azkar",
+      "title_ur": "روزانہ کے اذکار",
+      "items": [
+        {
+          "title": "Morning & evening protection",
+          "arabic": "بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ",
+          "translit": "Bismillahilladhi la yadurru ma'asmihi shay'un fil-ardi wa la fis-sama'i wa huwas-sami'ul-'alim",
+          "urdu": "اللہ کے نام سے جس کے نام کے ساتھ زمین و آسمان کی کوئی چیز نقصان نہیں پہنچا سکتی اور وہ سننے والا جاننے والا ہے",
+          "english": "In the name of Allah, with whose name nothing on earth or in heaven can harm, and He is the All-Hearing, All-Knowing. (3x)",
+          "ref": "Abu Dawud 5088"
+        },
+        {
+          "title": "Sayyid al-Istighfar",
+          "arabic": "اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ خَلَقْتَنِي وَأَنَا عَبْدُكَ وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ…",
+          "translit": "Allahumma anta rabbi la ilaha illa ant, khalaqtani wa ana 'abduk...",
+          "urdu": "اے اللہ تو میرا رب ہے، تیرے سوا کوئی معبود نہیں، تو نے مجھے پیدا کیا اور میں تیرا بندہ ہوں…",
+          "english": "O Allah, You are my Lord; there is no god but You. You created me and I am Your slave...",
+          "ref": "Bukhari 6306"
+        },
+        {
+          "title": "Tasbih after prayer",
+          "arabic": "سُبْحَانَ اللَّهِ (٣٣) الْحَمْدُ لِلَّهِ (٣٣) اللَّهُ أَكْبَرُ (٣٤)",
+          "translit": "SubhanAllah (33), Alhamdulillah (33), Allahu Akbar (34)",
+          "urdu": "سبحان اللہ ٣٣ بار، الحمد للہ ٣٣ بار، اللہ اکبر ٣٤ بار",
+          "english": "Glory be to Allah (33), Praise be to Allah (33), Allah is Greatest (34).",
+          "ref": "Muslim 596"
+        },
+        {
+          "title": "Salawat on the Prophet ﷺ (in Madinah especially)",
+          "arabic": "اللَّهُمَّ صَلِّ عَلَى مُحَمَّدٍ وَعَلَى آلِ مُحَمَّدٍ كَمَا صَلَّيْتَ عَلَى إِبْرَاهِيمَ وَعَلَى آلِ إِبْرَاهِيمَ إِنَّكَ حَمِيدٌ مَجِيدٌ",
+          "translit": "Allahumma salli 'ala Muhammadin wa 'ala ali Muhammad, kama sallayta 'ala Ibrahima wa 'ala ali Ibrahim, innaka Hamidun Majid",
+          "urdu": "اے اللہ محمد ﷺ اور آلِ محمد پر درود بھیج جیسے تو نے ابراہیم اور آلِ ابراہیم پر بھیجا، بیشک تو تعریف والا بزرگی والا ہے",
+          "english": "O Allah, send blessings upon Muhammad and his family as You blessed Ibrahim and his family. You are Praiseworthy, Glorious.",
+          "ref": "Bukhari 3370"
+        }
+      ]
+    }
+  ]
+}

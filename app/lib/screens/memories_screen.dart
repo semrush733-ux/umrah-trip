@@ -6,6 +6,7 @@ import '../core/strings.dart';
 import '../core/theme.dart';
 import '../models/trip.dart';
 import '../services/app_state.dart';
+import '../services/report_service.dart';
 
 /// Full visit history: every visited place with date, time, optional GPS
 /// check-in and personal notes. Status can be changed or undone here.
@@ -22,7 +23,17 @@ class MemoriesScreen extends StatelessWidget {
       ..sort((a, b) => (b.visitedAt ?? DateTime(0)).compareTo(a.visitedAt ?? DateTime(0)));
 
     return Scaffold(
-      appBar: AppBar(title: Text(s.memories)),
+      appBar: AppBar(
+        title: Text(s.memories),
+        actions: [
+          IconButton(
+            tooltip: 'Share PDF "Safar-e-Umrah"',
+            icon: const Icon(Icons.picture_as_pdf_rounded),
+            onPressed:
+                visited.isEmpty ? null : () => ReportService.shareMemoriesReport(app),
+          ),
+        ],
+      ),
       body: visited.isEmpty
           ? Center(
               child: Column(

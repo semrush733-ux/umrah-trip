@@ -11,6 +11,7 @@ import '../models/trip.dart';
 import 'database.dart';
 import 'destination_repository.dart';
 import 'location_service.dart';
+import 'notifications_service.dart';
 
 /// Single source of truth for the app. Wraps the pure [TripPlanner] with
 /// SQLite persistence and exposes settings, location and favorites.
@@ -28,6 +29,9 @@ class AppState extends ChangeNotifier {
   ThemeMode themeMode = ThemeMode.system;
   bool romanUrdu = false;
   String? manualRegion; // user-picked city when GPS is off
+  double? hotelLat;
+  double? hotelLng;
+  String? hotelLabel;
   double? budgetSar;
   double? pkrPerSar; // user-entered rate; shown with timestamp, never invented
   DateTime? rateUpdatedAt;
@@ -48,6 +52,9 @@ class AppState extends ChangeNotifier {
     themeMode = ThemeMode.values[(prefs.getInt('theme') ?? 0).clamp(0, 2)];
     romanUrdu = prefs.getBool('romanUrdu') ?? false;
     manualRegion = prefs.getString('manualRegion');
+    hotelLat = prefs.getDouble('hotelLat');
+    hotelLng = prefs.getDouble('hotelLng');
+    hotelLabel = prefs.getString('hotelLabel');
     budgetSar = prefs.getDouble('budgetSar');
     pkrPerSar = prefs.getDouble('pkrPerSar');
     final rt = prefs.getString('rateUpdatedAt');
@@ -99,6 +106,24 @@ class AppState extends ChangeNotifier {
       prefs.remove('manualRegion');
     } else {
       prefs.setString('manualRegion', region);
+    }
+    notifyListeners();
+  }
+
+  /// Saves "my hotel" at the given point (usually the current GPS position).
+  Future<void> setHotel(double? lat, double? lng, String? label) async {
+    hotelLat = lat;
+    hotelLng = lng;
+    hotelLabel = label;
+    final prefs = await SharedPreferences.getInstance();
+    if (lat == null || lng == null) {
+      prefs.remove('hotelLat');
+      prefs.remove('hotelLng');
+      prefs.remove('hotelLabel');
+    } else {
+      prefs.setDouble('hotelLat', lat);
+      prefs.setDouble('hotelLng', lng);
+      prefs.setString('hotelLabel', label ?? 'My Hotel');
     }
     notifyListeners();
   }
@@ -200,10 +225,26 @@ class AppState extends ChangeNotifier {
     final v = planner.addVisit(id: _uuid.v4(), dayId: dayId, destinationId: destinationId, time: time);
     notifyListeners();
     await dbService.upsertVisit(v);
+    _scheduleReminder(v);
     return v;
   }
 
+  void _scheduleReminder(TripVisit v) {
+    if (v.time == null) return;
+    final day = planner.days.where((d) => d.id == v.dayId).firstOrNull;
+    final dest = repo.byId(v.destinationId);
+    if (day == null || dest == null) return;
+    NotificationsService.instance.requestPermission();
+    NotificationsService.instance.scheduleVisitReminder(
+      visitId: v.id,
+      destinationName: dest.nameEn,
+      date: day.date,
+      time: v.time!,
+    );
+  }
+
   Future<void> removeVisit(String visitId) async {
+    NotificationsService.instance.cancelVisitReminder(visitId);
     final day = planner.visits.where((v) => v.id == visitId).firstOrNull?.dayId;
     planner.removeVisit(visitId);
     notifyListeners();
@@ -221,6 +262,11 @@ class AppState extends ChangeNotifier {
     v.time = time;
     notifyListeners();
     await dbService.upsertVisit(v);
+    if (time == null) {
+      NotificationsService.instance.cancelVisitReminder(visitId);
+    } else {
+      _scheduleReminder(v);
+    }
   }
 
   Future<void> reorder(String dayId, int oldIndex, int newIndex) async {
@@ -278,6 +324,12 @@ class AppState extends ChangeNotifier {
   }
 
   VisitStatus statusOf(String destinationId) => planner.statusOfDestination(destinationId);
+
+  /// Merge admin-added destinations fetched from the website.
+  void mergeRemoteDestinations(List<Destination> remote) {
+    repo.applyRemote(remote);
+    notifyListeners();
+  }
 
   // ---------- Expenses ----------
   Future<void> addExpense(String category, double amountSar, {String? note, DateTime? date}) async {

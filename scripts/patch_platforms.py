@@ -35,6 +35,9 @@ def patch_android_manifest() -> None:
         '<uses-permission android:name="android.permission.INTERNET"/>',
         '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>',
         '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>',
+        '<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>',
+        '<uses-permission android:name="android.permission.CAMERA"/>',
+        '<uses-permission android:name="android.permission.VIBRATE"/>',
     ]
     for p in perms:
         if p.split('"')[1] not in text:
@@ -132,6 +135,57 @@ def patch_ios_podfile() -> None:
     print("ok: Podfile platform set to iOS 14.0")
 
 
+def patch_android_desugaring() -> None:
+    """flutter_local_notifications needs core-library desugaring; the QR
+    scanner (mobile_scanner) needs minSdk 23."""
+    kts = APP / "android/app/build.gradle.kts"
+    groovy = APP / "android/app/build.gradle"
+    if kts.exists():
+        t = kts.read_text()
+        t = t.replace("minSdk = flutter.minSdkVersion", "minSdk = 23")
+        t = re.sub(r"minSdk\s*=\s*2[012]\b", "minSdk = 23", t)
+        if "isCoreLibraryDesugaringEnabled" not in t:
+            t = re.sub(
+                r"(compileOptions\s*\{\n)",
+                r"\1        isCoreLibraryDesugaringEnabled = true\n",
+                t,
+                count=1,
+            )
+            if "compileOptions" not in t:
+                t = re.sub(
+                    r"(android\s*\{\n)",
+                    r"\1    compileOptions {\n        isCoreLibraryDesugaringEnabled = true\n    }\n",
+                    t,
+                    count=1,
+                )
+        if "desugar_jdk_libs" not in t:
+            t += (
+                "\ndependencies {\n"
+                "    coreLibraryDesugaring(\"com.android.tools:desugar_jdk_libs:2.1.4\")\n"
+                "}\n"
+            )
+        kts.write_text(t)
+        print("ok: desugaring enabled (build.gradle.kts)")
+    elif groovy.exists():
+        t = groovy.read_text()
+        t = t.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 23")
+        if "coreLibraryDesugaringEnabled" not in t:
+            t = re.sub(
+                r"(compileOptions\s*\{\n)",
+                r"\1        coreLibraryDesugaringEnabled true\n",
+                t,
+                count=1,
+            )
+        if "desugar_jdk_libs" not in t:
+            t += (
+                "\ndependencies {\n"
+                "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'\n"
+                "}\n"
+            )
+        groovy.write_text(t)
+        print("ok: desugaring enabled (build.gradle)")
+
+
 def patch_android_signing() -> None:
     """Sign release builds with the permanent Umrah Trip keystore when the
     ANDROID_KEYSTORE_* env vars are present (CI secrets / local env). Without
@@ -222,6 +276,7 @@ if __name__ == "__main__":
     if not (APP / "pubspec.yaml").exists():
         sys.exit("Run this from the app/ directory (pubspec.yaml not found).")
     patch_android_manifest()
+    patch_android_desugaring()
     patch_ios_plist()
     patch_ios_appdelegate()
     patch_ios_podfile()

@@ -94,6 +94,24 @@ class PairState extends ChangeNotifier {
     return code;
   }
 
+  /// Same-WiFi pairing (server matches both phones by public IP).
+  /// Returns the code on success (created or joined), null on failure.
+  Future<String?> nearbyPair(String name) async {
+    myName = name;
+    final r = await api.nearby(name);
+    if (!r.ok) {
+      lastError = r.error;
+      notifyListeners();
+      return null;
+    }
+    code = r.data['code'] as String?;
+    token = r.data['token'] as String?;
+    await _persist();
+    _startLoop();
+    notifyListeners();
+    return code;
+  }
+
   Future<bool> joinPair(String joinCode, String name) async {
     myName = name;
     final r = await api.join(joinCode.toUpperCase().trim(), name);

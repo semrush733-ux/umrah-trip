@@ -80,6 +80,11 @@ class PairService {
   Future<PairApiResult> join(String code, String name) =>
       _post('join', {'code': code, 'name': name});
 
+  /// Same-WiFi pairing: both phones tap the same button; the server matches
+  /// devices arriving from the same public IP within a 2-minute window.
+  /// Returns {code, token, created, members}.
+  Future<PairApiResult> nearby(String name) => _post('nearby', {'name': name});
+
   /// Heartbeat + fetch in one call. Sends my live location (when sharing) and
   /// my visited map; returns the full merged room state.
   Future<PairApiResult> sync({

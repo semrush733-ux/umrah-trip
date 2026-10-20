@@ -19,6 +19,16 @@ class DestinationRepository {
     _all = List.unmodifiable(list);
   }
 
+  /// Merges admin-added destinations from the website (offline-cached).
+  /// Additive and idempotent: seed entries are never overwritten or removed.
+  void applyRemote(List<Destination> remote) {
+    if (remote.isEmpty) return;
+    final ids = _all.map((d) => d.id).toSet();
+    final added = remote.where((d) => !ids.contains(d.id)).toList();
+    if (added.isEmpty) return;
+    _all = List.unmodifiable([..._all, ...added]);
+  }
+
   Destination? byId(String id) {
     for (final d in _all) {
       if (d.id == id) return d;

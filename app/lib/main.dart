@@ -6,7 +6,9 @@ import 'core/theme.dart';
 import 'screens/root.dart';
 import 'screens/splash_screen.dart';
 import 'services/app_state.dart';
+import 'services/notifications_service.dart';
 import 'services/pair_state.dart';
+import 'services/site_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,13 +24,35 @@ class UmrahJourneyApp extends StatefulWidget {
 class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
   late final AppState state;
   late final PairState pairState;
+  late final SiteService siteService;
 
   @override
   void initState() {
     super.initState();
     state = AppState();
     pairState = PairState(state);
-    state.init().then((_) => pairState.init());
+    siteService = SiteService();
+    siteService.addListener(_onSiteUpdate);
+    state.init().then((_) {
+      pairState.init();
+      siteService.init();
+      NotificationsService.instance.init();
+    });
+  }
+
+  void _onSiteUpdate() {
+    // Merge admin-managed destinations and surface fresh announcements.
+    state.mergeRemoteDestinations(siteService.remoteDestinations);
+    final a = siteService.announcement;
+    if (a != null && siteService.announcementIsNew) {
+      NotificationsService.instance.showAnnouncement(a.title, a.body);
+    }
+  }
+
+  @override
+  void dispose() {
+    siteService.removeListener(_onSiteUpdate);
+    super.dispose();
   }
 
   @override
@@ -37,6 +61,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
       providers: [
         ChangeNotifierProvider.value(value: state),
         ChangeNotifierProvider.value(value: pairState),
+        ChangeNotifierProvider.value(value: siteService),
       ],
       child: Consumer<AppState>(
         builder: (context, app, _) {

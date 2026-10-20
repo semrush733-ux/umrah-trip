@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../core/strings.dart';
 import '../core/theme.dart';
 import '../services/app_state.dart';
+import '../services/report_service.dart';
 
 const expenseCategories = <(String, IconData)>[
   ('transport', Icons.directions_car_rounded),
@@ -31,7 +32,18 @@ class ExpensesScreen extends StatelessWidget {
     final rate = app.pkrPerSar;
 
     return Scaffold(
-      appBar: AppBar(title: Text(s.budget)),
+      appBar: AppBar(
+        title: Text(s.budget),
+        actions: [
+          IconButton(
+            tooltip: 'Share PDF report',
+            icon: const Icon(Icons.picture_as_pdf_rounded),
+            onPressed: app.expenses.isEmpty
+                ? null
+                : () => ReportService.shareExpenseReport(app),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _addExpense(context, app),
         icon: const Icon(Icons.add_rounded),
