@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -33,10 +34,20 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
     pairState = PairState(state);
     siteService = SiteService();
     siteService.addListener(_onSiteUpdate);
-    state.init().then((_) {
-      pairState.init();
-      siteService.init();
-      NotificationsService.instance.init();
+    state.init().catchError((e) {
+      // Never let a startup error strand the user on the splash screen.
+      debugPrint('AppState.init error: $e');
+      state.forceReady();
+    }).whenComplete(() {
+      try {
+        pairState.init();
+      } catch (_) {}
+      try {
+        siteService.init();
+      } catch (_) {}
+      try {
+        NotificationsService.instance.init();
+      } catch (_) {}
     });
   }
 

@@ -45,39 +45,54 @@ class AppState extends ChangeNotifier {
         dbService = db ?? AppDatabase(),
         location = loc ?? LocationService();
 
+  /// Startup is deliberately fault-tolerant: whatever fails (storage,
+  /// prefs, even the seed JSON) the app still reaches the home screen —
+  /// a stuck splash is never acceptable.
   Future<void> init() async {
-    await repo.load();
-    final prefs = await SharedPreferences.getInstance();
-    language = AppLanguage.values[(prefs.getInt('lang') ?? 0).clamp(0, 2)];
-    themeMode = ThemeMode.values[(prefs.getInt('theme') ?? 0).clamp(0, 2)];
-    romanUrdu = prefs.getBool('romanUrdu') ?? false;
-    manualRegion = prefs.getString('manualRegion');
-    hotelLat = prefs.getDouble('hotelLat');
-    hotelLng = prefs.getDouble('hotelLng');
-    hotelLabel = prefs.getString('hotelLabel');
-    budgetSar = prefs.getDouble('budgetSar');
-    pkrPerSar = prefs.getDouble('pkrPerSar');
-    final rt = prefs.getString('rateUpdatedAt');
-    rateUpdatedAt = rt == null ? null : DateTime.tryParse(rt);
-
-    final (days, visits) = await dbService.loadTrip();
-    planner.days
-      ..clear()
-      ..addAll(days);
-    planner.visits
-      ..clear()
-      ..addAll(visits);
-    favorites
-      ..clear()
-      ..addAll(await dbService.loadFavorites());
-    expenses
-      ..clear()
-      ..addAll(await dbService.loadExpenses());
-
+    try {
+      await repo.load();
+    } catch (e) {
+      debugPrint('init: repo.load failed: $e');
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      language = AppLanguage.values[(prefs.getInt('lang') ?? 0).clamp(0, 2)];
+      themeMode = ThemeMode.values[(prefs.getInt('theme') ?? 0).clamp(0, 2)];
+      romanUrdu = prefs.getBool('romanUrdu') ?? false;
+      manualRegion = prefs.getString('manualRegion');
+      hotelLat = prefs.getDouble('hotelLat');
+      hotelLng = prefs.getDouble('hotelLng');
+      hotelLabel = prefs.getString('hotelLabel');
+      budgetSar = prefs.getDouble('budgetSar');
+      pkrPerSar = prefs.getDouble('pkrPerSar');
+      final rt = prefs.getString('rateUpdatedAt');
+      rateUpdatedAt = rt == null ? null : DateTime.tryParse(rt);
+    } catch (e) {
+      debugPrint('init: prefs failed: $e');
+    }
+    try {
+      final (days, visits) = await dbService.loadTrip();
+      planner.days
+        ..clear()
+        ..addAll(days);
+      planner.visits
+        ..clear()
+        ..addAll(visits);
+      favorites
+        ..clear()
+        ..addAll(await dbService.loadFavorites());
+      expenses
+        ..clear()
+        ..addAll(await dbService.loadExpenses());
+    } catch (e) {
+      debugPrint('init: database failed: $e');
+    }
     ready = true;
     notifyListeners();
     // Try a silent position fix if permission was already granted.
-    refreshLocation(request: false);
+    try {
+      refreshLocation(request: false);
+    } catch (_) {}
   }
 
   // ---------- Settings ----------
@@ -324,6 +339,12 @@ class AppState extends ChangeNotifier {
   }
 
   VisitStatus statusOf(String destinationId) => planner.statusOfDestination(destinationId);
+
+  /// Last-resort unblock for the splash screen.
+  void forceReady() {
+    ready = true;
+    notifyListeners();
+  }
 
   /// Merge admin-added destinations fetched from the website.
   void mergeRemoteDestinations(List<Destination> remote) {

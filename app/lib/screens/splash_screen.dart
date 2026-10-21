@@ -62,12 +62,16 @@ class _SplashScreenState extends State<SplashScreen>
 
   Future<void> _goNext() async {
     if (!mounted || _navigated) return;
-    // Wait until startup loading (destinations + saved trip) is done.
+    // Wait for startup loading, but NEVER strand the user on the splash:
+    // after ~6s we proceed regardless (init is fault-tolerant too).
     final app = context.read<AppState>();
-    while (!app.ready) {
+    var waited = 0;
+    while (!app.ready && waited < 6000) {
       await Future.delayed(const Duration(milliseconds: 80));
+      waited += 80;
       if (!mounted) return;
     }
+    if (!app.ready) app.forceReady();
     _navigated = true;
     if (!mounted) return;
     Navigator.of(context).pushReplacement(

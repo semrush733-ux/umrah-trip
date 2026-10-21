@@ -43,12 +43,13 @@ def patch_android_manifest() -> None:
         if p.split('"')[1] not in text:
             text = text.replace("<application", f"    {p}\n    <application", 1)
 
-    # Maps API key meta-data (placeholder kept even when empty so release
-    # builds can be re-signed with a key later without a code change).
+    # Maps API key meta-data. Never leave the value empty — some Play
+    # Services versions crash the whole app at launch on an empty key.
+    safe_key = MAPS_KEY if MAPS_KEY else "PLACEHOLDER_SET_MAPS_API_KEY"
     if "com.google.android.geo.API_KEY" not in text:
         meta = (
             '        <meta-data android:name="com.google.android.geo.API_KEY" '
-            f'android:value="{MAPS_KEY}"/>\n'
+            f'android:value="{safe_key}"/>\n'
         )
         text = re.sub(r"(<application[^>]*>\n)", r"\1" + meta, text, count=1)
     elif MAPS_KEY:
