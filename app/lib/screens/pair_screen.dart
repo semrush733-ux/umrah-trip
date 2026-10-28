@@ -763,18 +763,46 @@ class _LiveMapCardState extends State<_LiveMapCard> {
         : null;
   }
 
+  /// Metres between the two pins (null if one is missing).
+  double? get _gap {
+    final a = _me, b = _partner;
+    if (a == null || b == null) return null;
+    return const Distance().as(LengthUnit.Meter, a, b);
+  }
+
+  double get _myAcc => (widget.pair.app.position?.accuracy ?? 15).clamp(5, 500).toDouble();
+  double get _partnerAcc => (widget.pair.partner?.accuracy ?? 15).clamp(5, 500).toDouble();
+
+  /// Phone GPS is only accurate to ~5–30 m (worse indoors), so two people
+  /// side by side can show a few metres apart. Within the combined error
+  /// we treat them as "together".
+  bool get _together {
+    final g = _gap;
+    return g != null && g <= (_myAcc + _partnerAcc).clamp(20, 80);
+  }
+
   void _fit() {
     final pts = [if (_me != null) _me!, if (_partner != null) _partner!];
     if (pts.isEmpty) return;
     try {
-      if (pts.length == 1) {
-        _controller.move(pts.first, 15);
+      if (pts.length == 1 || _together) {
+        // Don't zoom to street-furniture level — a few metres of GPS
+        // error would look like a big distance.
+        _controller.move(
+            pts.length == 1
+                ? pts.first
+                : LatLng((pts[0].latitude + pts[1].latitude) / 2,
+                    (pts[0].longitude + pts[1].longitude) / 2),
+            16.5);
       } else {
         _controller.fitCamera(CameraFit.coordinates(
-            coordinates: pts, padding: const EdgeInsets.all(48)));
+            coordinates: pts, padding: const EdgeInsets.all(56), maxZoom: 17));
       }
     } catch (_) {}
   }
+
+  String _fmtGap(double m) =>
+      m < 1000 ? '${m.round()} m away' : '${(m / 1000).toStringAsFixed(m < 10000 ? 1 : 0)} km away';
 
   @override
   Widget build(BuildContext context) {
@@ -799,6 +827,7 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                 options: MapOptions(
                   initialCenter: center,
                   initialZoom: 14,
+                  maxZoom: 18.5,
                   interactionOptions: const InteractionOptions(
                       flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
                 ),
@@ -806,7 +835,27 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                   TileLayer(
                     urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.bwpexperts.umrah_journey',
+                    maxNativeZoom: 19,
                   ),
+                  // GPS accuracy circles: the true spot is somewhere inside.
+                  CircleLayer(circles: [
+                    if (me != null)
+                      CircleMarker(
+                          point: me,
+                          radius: _myAcc,
+                          useRadiusInMeter: true,
+                          color: Colors.blue.withValues(alpha: 0.12),
+                          borderColor: Colors.blue.withValues(alpha: 0.4),
+                          borderStrokeWidth: 1),
+                    if (partner != null && !_together)
+                      CircleMarker(
+                          point: partner,
+                          radius: _partnerAcc,
+                          useRadiusInMeter: true,
+                          color: Colors.redAccent.withValues(alpha: 0.10),
+                          borderColor: Colors.redAccent.withValues(alpha: 0.4),
+                          borderStrokeWidth: 1),
+                  ]),
                   MarkerLayer(markers: [
                     if (me != null)
                       Marker(
@@ -843,6 +892,28 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                   ]),
                 ],
               ),
+              if (_gap != null)
+                Positioned(
+                  left: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: _together ? AppColors.emerald : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: const [BoxShadow(blurRadius: 4, color: Colors.black26)],
+                    ),
+                    child: Text(
+                      _together
+                          ? '❤ Together · within ~${(_myAcc + _partnerAcc).clamp(20, 80).round()} m'
+                          : '${widget.pair.partner!.name} · ${_fmtGap(_gap!)}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: _together ? Colors.white : AppColors.slate),
+                    ),
+                  ),
+                ),
               // Attribution (OSM requirement)
               Positioned(
                 left: 4,
@@ -859,11 +930,11 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                   const SizedBox(height: 6),
                   if (me != null)
                     _mapBtn(Icons.my_location_rounded, 'Me',
-                        () => _controller.move(me, 16)),
+                        () => _controller.move(me, 17)),
                   const SizedBox(height: 6),
                   if (partner != null)
                     _mapBtn(Icons.favorite_rounded, 'Partner',
-                        () => _controller.move(partner, 16)),
+                        () => _controller.move(partner, 17)),
                 ]),
               ),
               if (me == null && partner == null)
