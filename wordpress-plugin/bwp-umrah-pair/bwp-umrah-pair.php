@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: BWP Umrah Pair
- * Description: Umrah Trip app backend — user accounts with cloud backup/restore, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.3.1
+ * Description: Umrah Trip app backend — user accounts with cloud backup/restore, friends, live chat and calls, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
+ * Version: 1.4.0
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.3.1');
+define('BWP_UMRAH_PAIR_VERSION', '1.4.0');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -42,6 +42,7 @@ function bwp_umrah_pair_install() {
     dbDelta("CREATE TABLE $users (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         email VARCHAR(190) NOT NULL,
+        username VARCHAR(40) NULL,
         name VARCHAR(80) NOT NULL DEFAULT '',
         pass_hash VARCHAR(255) NOT NULL,
         tokens TEXT NOT NULL,
@@ -49,7 +50,32 @@ function bwp_umrah_pair_install() {
         data_updated BIGINT UNSIGNED NOT NULL DEFAULT 0,
         created BIGINT UNSIGNED NOT NULL,
         PRIMARY KEY (id),
-        UNIQUE KEY email (email)
+        UNIQUE KEY email (email),
+        UNIQUE KEY username (username)
+    ) $charset;");
+    $friends = $wpdb->prefix . 'bwp_umrah_friends';
+    dbDelta("CREATE TABLE $friends (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        a_id BIGINT UNSIGNED NOT NULL,
+        b_id BIGINT UNSIGNED NOT NULL,
+        status VARCHAR(12) NOT NULL DEFAULT 'pending',
+        requested_by BIGINT UNSIGNED NOT NULL,
+        created BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY pair (a_id, b_id),
+        KEY b_id (b_id)
+    ) $charset;");
+    $msgs = $wpdb->prefix . 'bwp_umrah_messages';
+    dbDelta("CREATE TABLE $msgs (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        thread VARCHAR(64) NOT NULL,
+        sender_key VARCHAR(40) NOT NULL,
+        sender_name VARCHAR(80) NOT NULL DEFAULT '',
+        type VARCHAR(12) NOT NULL DEFAULT 'text',
+        body TEXT NOT NULL,
+        created BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY (id),
+        KEY thread_id (thread, id)
     ) $charset;");
     update_option('bwp_umrah_pair_db', BWP_UMRAH_PAIR_VERSION);
 }
@@ -182,6 +208,14 @@ add_action('rest_api_init', function () {
     register_rest_route($ns, '/account/restore',  $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_restore']);
     register_rest_route($ns, '/account/logout',   $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_logout']);
     register_rest_route($ns, '/account/delete',   $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_delete']);
+    register_rest_route($ns, '/account/profile',  $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_profile']);
+    register_rest_route($ns, '/friends/list',     $pub + ['methods' => 'POST', 'callback' => 'bwp_uf_list']);
+    register_rest_route($ns, '/friends/add',      $pub + ['methods' => 'POST', 'callback' => 'bwp_uf_add']);
+    register_rest_route($ns, '/friends/respond',  $pub + ['methods' => 'POST', 'callback' => 'bwp_uf_respond']);
+    register_rest_route($ns, '/friends/remove',   $pub + ['methods' => 'POST', 'callback' => 'bwp_uf_remove']);
+    register_rest_route($ns, '/chat/send',        $pub + ['methods' => 'POST', 'callback' => 'bwp_uc_send']);
+    register_rest_route($ns, '/chat/poll',        $pub + ['methods' => 'POST', 'callback' => 'bwp_uc_poll']);
+    register_rest_route($ns, '/chat/inbox',       $pub + ['methods' => 'POST', 'callback' => 'bwp_uc_inbox']);
 });
 
 /**
@@ -242,6 +276,7 @@ function bwp_up_settings() {
         'destinations_json' => "[]",
         'ai_api_key' => '',
         'ai_model' => 'claude-haiku-5-5',
+        'call_server' => 'https://meet.jit.si',
     ];
     $opt = get_option('bwp_umrah_app', []);
     return array_merge($defaults, is_array($opt) ? $opt : []);
@@ -260,6 +295,7 @@ function bwp_up_route_config() {
         ],
         'ai_enabled' => $s['ai_api_key'] !== '',
         'plugin_version' => BWP_UMRAH_PAIR_VERSION,
+        'call_server' => $s['call_server'] ?: 'https://meet.jit.si',
     ]);
 }
 
@@ -321,6 +357,7 @@ function bwp_up_admin_page() {
             'destinations_json' => wp_unslash($_POST['destinations_json'] ?? '[]'),
             'ai_api_key' => sanitize_text_field($_POST['ai_api_key'] ?? ''),
             'ai_model' => sanitize_text_field($_POST['ai_model'] ?? 'claude-haiku-5-5'),
+            'call_server' => esc_url_raw(trim($_POST['call_server'] ?? 'https://meet.jit.si')),
         ];
         // Bump announcement timestamp only when its content changed.
         if ($new['announcement_title'] !== $s['announcement_title'] || $new['announcement_body'] !== $s['announcement_body']) {
@@ -358,6 +395,9 @@ function bwp_up_admin_page() {
           <tr><th>AI API key (Anthropic)</th>
             <td><input type="password" name="ai_api_key" value="<?php echo esc_attr($s['ai_api_key']); ?>" class="regular-text" autocomplete="off">
             <p class="description">Powers the in-app AI assistant. Key stays on this server only.</p></td></tr>
+          <tr><th>Call server (Jitsi)</th>
+            <td><input type="url" name="call_server" value="<?php echo esc_attr($s['call_server']); ?>" class="regular-text">
+            <p class="description">Voice/video calls open a private room on this Jitsi server. Default https://meet.jit.si (free). You can point this to your own Jitsi server later.</p></td></tr>
           <tr><th>AI model</th>
             <td><input type="text" name="ai_model" value="<?php echo esc_attr($s['ai_model']); ?>" class="regular-text"></td></tr>
         </table>
@@ -574,7 +614,7 @@ function bwp_ua_register(WP_REST_Request $req) {
     if (!$ok) return bwp_up_err('Could not create the account, please try again', 500);
     $row = bwp_ua_find_by_email($email);
     $token = bwp_ua_issue_token($row);
-    return bwp_up_json(['token' => $token, 'email' => $email, 'name' => $name, 'data' => null, 'data_updated' => 0]);
+    return bwp_up_json(['token' => $token, 'email' => $email, 'name' => $name, 'username' => $row['username'], 'data' => null, 'data_updated' => 0]);
 }
 
 function bwp_ua_login(WP_REST_Request $req) {
@@ -588,7 +628,7 @@ function bwp_ua_login(WP_REST_Request $req) {
     $token = bwp_ua_issue_token($row);
     $data = $row['data'] ? json_decode($row['data'], true) : null;
     return bwp_up_json([
-        'token' => $token, 'email' => $row['email'], 'name' => $row['name'],
+        'token' => $token, 'email' => $row['email'], 'name' => $row['name'], 'username' => $row['username'],
         'data' => $data, 'data_updated' => (int) $row['data_updated'],
     ]);
 }
@@ -685,3 +725,241 @@ function bwp_ua_admin_page() {
     }
     echo '</tbody></table></div>';
 }
+
+
+// ================================================================ social: usernames, friends, chat, calls
+
+function bwp_uf_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_friends'; }
+function bwp_uc_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_messages'; }
+
+function bwp_ua_public($row) {
+    return ['id' => (int) $row['id'], 'name' => $row['name'], 'username' => $row['username']];
+}
+
+function bwp_ua_profile(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $upd = [];
+    $u = $req->get_param('username');
+    if ($u !== null) {
+        $u = strtolower(trim((string) $u, " @"));
+        if (!preg_match('/^[a-z0-9_.]{3,20}$/', $u)) return bwp_up_err('Username must be 3–20 characters: letters, numbers, _ or .');
+        $taken = $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . bwp_ua_table() . ' WHERE username = %s AND id <> %d', $u, $me['id']));
+        if ($taken) return bwp_up_err('That username is already taken', 409);
+        $upd['username'] = $u;
+    }
+    $n = $req->get_param('name');
+    if ($n !== null) $upd['name'] = bwp_up_sanitize_name($n);
+    if ($upd) $wpdb->update(bwp_ua_table(), $upd, ['id' => $me['id']]);
+    $me = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_ua_table() . ' WHERE id = %d', $me['id']), ARRAY_A);
+    return bwp_up_json(['email' => $me['email'], 'name' => $me['name'], 'username' => $me['username']]);
+}
+
+function bwp_uf_row_for($me_id, $fid) {
+    global $wpdb;
+    return $wpdb->get_row($wpdb->prepare(
+        'SELECT * FROM ' . bwp_uf_table() . ' WHERE id = %d AND (a_id = %d OR b_id = %d)', $fid, $me_id, $me_id
+    ), ARRAY_A);
+}
+
+function bwp_uf_list(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $rows = $wpdb->get_results($wpdb->prepare(
+        'SELECT * FROM ' . bwp_uf_table() . ' WHERE a_id = %d OR b_id = %d ORDER BY id DESC LIMIT 300', $me['id'], $me['id']
+    ), ARRAY_A);
+    $out = [];
+    foreach ($rows as $f) {
+        $other_id = ((int) $f['a_id'] === (int) $me['id']) ? (int) $f['b_id'] : (int) $f['a_id'];
+        $o = $wpdb->get_row($wpdb->prepare('SELECT id, name, username FROM ' . bwp_ua_table() . ' WHERE id = %d', $other_id), ARRAY_A);
+        if (!$o) continue;
+        $out[] = [
+            'fid' => (int) $f['id'],
+            'status' => $f['status'],
+            'incoming' => $f['status'] === 'pending' && (int) $f['requested_by'] !== (int) $me['id'],
+            'user' => bwp_ua_public($o),
+            'thread' => 'dm:' . (int) $f['id'],
+        ];
+    }
+    return bwp_up_json(['me' => bwp_ua_public($me), 'friends' => $out]);
+}
+
+function bwp_uf_add(WP_REST_Request $req) {
+    global $wpdb;
+    if (bwp_up_rate_limited('friend_add', 60, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests, please try later', 429);
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $q = strtolower(trim((string) $req->get_param('query'), " @"));
+    if ($q === '') return bwp_up_err('Enter an email address or username');
+    $col = is_email($q) ? 'email' : 'username';
+    $o = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_ua_table() . " WHERE $col = %s", $q), ARRAY_A);
+    if (!$o) return bwp_up_err('No Umrah Trip account found with that ' . ($col === 'email' ? 'email address' : 'username'), 404);
+    if ((int) $o['id'] === (int) $me['id']) return bwp_up_err('You cannot add yourself');
+    $a = min((int) $me['id'], (int) $o['id']); $b = max((int) $me['id'], (int) $o['id']);
+    $f = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uf_table() . ' WHERE a_id = %d AND b_id = %d', $a, $b), ARRAY_A);
+    if ($f) {
+        if ($f['status'] === 'accepted') return bwp_up_json(['status' => 'accepted', 'message' => 'You are already friends']);
+        if ((int) $f['requested_by'] !== (int) $me['id']) { // they asked me earlier → accept
+            $wpdb->update(bwp_uf_table(), ['status' => 'accepted'], ['id' => $f['id']]);
+            return bwp_up_json(['status' => 'accepted', 'message' => 'Friend request accepted']);
+        }
+        return bwp_up_json(['status' => 'pending', 'message' => 'Request already sent']);
+    }
+    $wpdb->insert(bwp_uf_table(), ['a_id' => $a, 'b_id' => $b, 'status' => 'pending', 'requested_by' => $me['id'], 'created' => bwp_up_now()]);
+    return bwp_up_json(['status' => 'pending', 'message' => 'Friend request sent to ' . $o['name']]);
+}
+
+function bwp_uf_respond(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $f = bwp_uf_row_for($me['id'], (int) $req->get_param('fid'));
+    if (!$f || $f['status'] !== 'pending' || (int) $f['requested_by'] === (int) $me['id']) return bwp_up_err('Request not found', 404);
+    if ($req->get_param('accept')) {
+        $wpdb->update(bwp_uf_table(), ['status' => 'accepted'], ['id' => $f['id']]);
+    } else {
+        $wpdb->delete(bwp_uf_table(), ['id' => $f['id']]);
+    }
+    return bwp_up_json([]);
+}
+
+function bwp_uf_remove(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $f = bwp_uf_row_for($me['id'], (int) $req->get_param('fid'));
+    if (!$f) return bwp_up_err('Not found', 404);
+    $wpdb->delete(bwp_uf_table(), ['id' => $f['id']]);
+    $wpdb->delete(bwp_uc_table(), ['thread' => 'dm:' . (int) $f['id']]);
+    return bwp_up_json([]);
+}
+
+/**
+ * Resolve who is talking in a thread. Returns [sender_key, sender_name] or WP_REST_Response error.
+ *  - dm:<fid>   → account token, friendship must be accepted
+ *  - pair:<code> → pairing code + pairing token
+ */
+function bwp_uc_auth(WP_REST_Request $req, $thread) {
+    if (strpos($thread, 'dm:') === 0) {
+        $me = bwp_ua_find_by_token($req->get_param('token'));
+        if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+        $f = bwp_uf_row_for($me['id'], (int) substr($thread, 3));
+        if (!$f || $f['status'] !== 'accepted') return bwp_up_err('Not allowed in this chat', 403);
+        return ['u:' . (int) $me['id'], $me['name']];
+    }
+    if (strpos($thread, 'pair:') === 0) {
+        $code = strtoupper(substr($thread, 5));
+        $pair = bwp_up_load($code);
+        $tkn = bwp_up_auth($pair, (string) $req->get_param('ptoken'));
+        if (!$tkn) return bwp_up_err('Not authorised for this pairing', 403);
+        return ['p:' . substr(hash('sha256', $tkn), 0, 16), $pair['members'][$tkn]['name']];
+    }
+    return bwp_up_err('Unknown chat', 400);
+}
+
+function bwp_uc_format($m, $my_key) {
+    $body = $m['body'];
+    $dec = in_array($m['type'], ['location', 'call'], true) ? json_decode($body, true) : null;
+    return [
+        'id' => (int) $m['id'], 'type' => $m['type'],
+        'body' => $dec !== null ? $dec : $body,
+        'name' => $m['sender_name'], 'mine' => $m['sender_key'] === $my_key,
+        'ts' => (int) $m['created'],
+    ];
+}
+
+function bwp_uc_send(WP_REST_Request $req) {
+    global $wpdb;
+    if (bwp_up_rate_limited('chat_send', 600, HOUR_IN_SECONDS)) return bwp_up_err('Too many messages, slow down', 429);
+    $thread = substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $req->get_param('thread')), 0, 60);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    $type = (string) $req->get_param('type');
+    if (!in_array($type, ['text', 'image', 'location', 'call'], true)) $type = 'text';
+
+    if ($type === 'image') {
+        $b64 = (string) $req->get_param('image');
+        if ($b64 === '' || strlen($b64) > BWP_UMRAH_PAIR_MAX_PHOTO_B64) return bwp_up_err('Image missing or too large (max ~900 KB)');
+        $bytes = base64_decode($b64, true);
+        if ($bytes === false) return bwp_up_err('Invalid image data');
+        $isJpeg = substr($bytes, 0, 3) === "\xFF\xD8\xFF";
+        $isPng = substr($bytes, 0, 8) === "\x89PNG\r\n\x1a\n";
+        if (!$isJpeg && !$isPng) return bwp_up_err('Only JPEG/PNG photos are accepted');
+        $up = wp_upload_bits('umrah-chat/' . md5($thread) . '-' . bwp_up_now() . '-' . wp_generate_password(6, false, false) . ($isJpeg ? '.jpg' : '.png'), null, $bytes);
+        if (!empty($up['error'])) return bwp_up_err('Upload failed: ' . $up['error'], 500);
+        $body = strpos(home_url(), 'https://') === 0 ? set_url_scheme($up['url'], 'https') : $up['url'];
+    } elseif ($type === 'location' || $type === 'call') {
+        $b = $req->get_param('body');
+        if (!is_array($b)) return bwp_up_err('Invalid message');
+        if ($type === 'location') {
+            $b = ['lat' => (float) ($b['lat'] ?? 0), 'lng' => (float) ($b['lng'] ?? 0)];
+        } else {
+            $url = esc_url_raw((string) ($b['url'] ?? ''));
+            if ($url === '') return bwp_up_err('Invalid call link');
+            $b = ['url' => $url, 'video' => !empty($b['video'])];
+        }
+        $body = wp_json_encode($b);
+    } else {
+        $body = trim(wp_strip_all_tags((string) $req->get_param('body')));
+        if ($body === '') return bwp_up_err('Empty message');
+        $body = mb_substr($body, 0, 2000);
+    }
+    $wpdb->insert(bwp_uc_table(), [
+        'thread' => $thread, 'sender_key' => $who[0], 'sender_name' => $who[1],
+        'type' => $type, 'body' => $body, 'created' => bwp_up_now(),
+    ]);
+    $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE id = %d', $wpdb->insert_id), ARRAY_A);
+    return bwp_up_json(['message' => bwp_uc_format($m, $who[0])]);
+}
+
+function bwp_uc_poll(WP_REST_Request $req) {
+    global $wpdb;
+    $thread = substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $req->get_param('thread')), 0, 60);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    $after = (int) $req->get_param('after');
+    if ($after > 0) {
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s AND id > %d ORDER BY id ASC LIMIT 200', $thread, $after
+        ), ARRAY_A);
+    } else { // first load: latest 100
+        $rows = array_reverse($wpdb->get_results($wpdb->prepare(
+            'SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s ORDER BY id DESC LIMIT 100', $thread
+        ), ARRAY_A));
+    }
+    $out = array_map(function ($m) use ($who) { return bwp_uc_format($m, $who[0]); }, $rows);
+    return bwp_up_json(['messages' => $out]);
+}
+
+/** Latest message per friend thread (for unread badges + incoming call alerts). */
+function bwp_uc_inbox(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $fids = $wpdb->get_col($wpdb->prepare(
+        "SELECT id FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'accepted'", $me['id'], $me['id']
+    ));
+    $threads = array_map(function ($f) { return 'dm:' . (int) $f; }, $fids);
+    $pt = (string) $req->get_param('pair_thread');
+    $out = [];
+    $mk = 'u:' . (int) $me['id'];
+    foreach ($threads as $th) {
+        $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s ORDER BY id DESC LIMIT 1', $th), ARRAY_A);
+        if ($m) $out[$th] = bwp_uc_format($m, $mk);
+    }
+    $pending = (int) $wpdb->get_var($wpdb->prepare(
+        "SELECT COUNT(*) FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'pending' AND requested_by <> %d",
+        $me['id'], $me['id'], $me['id']
+    ));
+    return bwp_up_json(['latest' => (object) $out, 'pending_requests' => $pending]);
+}
+
+// Light clean-up: chat messages older than 120 days.
+add_action('init', function () {
+    if (get_transient('bwp_uc_gc')) return;
+    set_transient('bwp_uc_gc', 1, DAY_IN_SECONDS);
+    global $wpdb;
+    $wpdb->query($wpdb->prepare('DELETE FROM ' . bwp_uc_table() . ' WHERE created < %d', time() - 120 * DAY_IN_SECONDS));
+});

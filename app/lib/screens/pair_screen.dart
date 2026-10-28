@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme.dart';
 import '../services/pair_state.dart';
+import 'chat_screen.dart';
 import 'experiences_screen.dart';
 
 /// Couple pairing — four ways to link the two phones with ONE security code:
@@ -479,6 +480,30 @@ class _PairScreenState extends State<PairScreen> {
                 ),
               ),
           ],
+        ),
+      ),
+      const SizedBox(height: 12),
+
+      // ---- Chat & calls with the partner ----
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(minimumSize: const Size(0, 52)),
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ChatScreen(
+                          thread: 'pair:${pair.code}',
+                          title: p?.name ?? 'Partner',
+                          subtitle: 'Couple pairing'))),
+                  icon: const Icon(Icons.chat_rounded),
+                  label: const Text('Chat & Call'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       const SizedBox(height: 12),

@@ -13,6 +13,7 @@ import '../widgets/destination_card.dart';
 import 'ai_screen.dart';
 import 'destination_detail.dart';
 import 'duas_screen.dart';
+import 'friends_screen.dart';
 import 'journey_guide_screen.dart';
 import 'prayer_qibla_screen.dart';
 import 'recommendations_screen.dart';
@@ -188,6 +189,11 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisSpacing: 10,
               childAspectRatio: 1.06,
               children: [
+                _QuickAction(
+                    icon: Icons.forum_rounded,
+                    label: 'Chats & Calls',
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                        builder: (_) => const FriendsScreen()))),
                 _QuickAction(
                     icon: Icons.mosque_rounded,
                     label: 'Prayer & Qibla',

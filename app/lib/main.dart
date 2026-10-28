@@ -11,6 +11,7 @@ import 'services/app_state.dart';
 import 'services/notifications_service.dart';
 import 'services/pair_state.dart';
 import 'services/site_service.dart';
+import 'services/social_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +29,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
   late final PairState pairState;
   late final SiteService siteService;
   late final AccountService accountService;
+  late final SocialService socialService;
 
   @override
   void initState() {
@@ -36,6 +38,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
     pairState = PairState(state);
     siteService = SiteService();
     accountService = AccountService(state, pairState);
+    socialService = SocialService(accountService, pairState);
     siteService.addListener(_onSiteUpdate);
     state.init().catchError((e) {
       // Never let a startup error strand the user on the splash screen.
@@ -51,9 +54,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
       try {
         NotificationsService.instance.init();
       } catch (_) {}
-      try {
-        accountService.init();
-      } catch (_) {}
+      accountService.init().then((_) => socialService.init()).catchError((_) {});
     });
   }
 
@@ -80,6 +81,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
         ChangeNotifierProvider.value(value: pairState),
         ChangeNotifierProvider.value(value: siteService),
         ChangeNotifierProvider.value(value: accountService),
+        ChangeNotifierProvider.value(value: socialService),
       ],
       child: Consumer<AppState>(
         builder: (context, app, _) {

@@ -28,6 +28,7 @@ class AccountService extends ChangeNotifier {
   String? token;
   String? email;
   String? name;
+  String? username;
   DateTime? lastBackupAt;
   bool backingUp = false;
   String? lastError;
@@ -46,6 +47,7 @@ class AccountService extends ChangeNotifier {
     token = p.getString('acct_token');
     email = p.getString('acct_email');
     name = p.getString('acct_name');
+    username = p.getString('acct_username');
     final lb = p.getInt('acct_last_backup');
     lastBackupAt = lb == null ? null : DateTime.fromMillisecondsSinceEpoch(lb);
     app.addListener(_onDataChanged);
@@ -90,7 +92,13 @@ class AccountService extends ChangeNotifier {
     token = j['token']?.toString() ?? token;
     email = j['email']?.toString() ?? email;
     name = j['name']?.toString() ?? name;
+    if (j.containsKey('username')) username = j['username']?.toString();
     final p = await SharedPreferences.getInstance();
+    if (username != null) {
+      await p.setString('acct_username', username!);
+    } else {
+      await p.remove('acct_username');
+    }
     if (token != null) await p.setString('acct_token', token!);
     if (email != null) await p.setString('acct_email', email!);
     if (name != null) await p.setString('acct_name', name!);
@@ -101,14 +109,27 @@ class AccountService extends ChangeNotifier {
     token = null;
     email = null;
     name = null;
+    username = null;
     lastBackupAt = null;
     _lastUploadedHash = null;
     final p = await SharedPreferences.getInstance();
     await p.remove('acct_token');
     await p.remove('acct_email');
     await p.remove('acct_name');
+    await p.remove('acct_username');
     await p.remove('acct_last_backup');
     notifyListeners();
+  }
+
+  /// Sets/changes the public @username (and optionally display name).
+  Future<AccountResult> updateProfile({String? newUsername, String? newName}) async {
+    final r = await _post('profile', {
+      'token': token,
+      if (newUsername != null) 'username': newUsername,
+      if (newName != null) 'name': newName,
+    });
+    if (r.ok) await _saveSession(r.data);
+    return r;
   }
 
   // ---------------- public API ----------------
