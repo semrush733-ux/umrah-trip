@@ -38,6 +38,10 @@ def patch_android_manifest() -> None:
         '<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>',
         '<uses-permission android:name="android.permission.CAMERA"/>',
         '<uses-permission android:name="android.permission.VIBRATE"/>',
+        '<uses-permission android:name="android.permission.RECORD_AUDIO"/>',
+        '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>',
+        '<uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>',
+        '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>',
     ]
     for p in perms:
         if p.split('"')[1] not in text:
@@ -84,9 +88,17 @@ def patch_ios_plist() -> None:
         "your paired partner. It is never tracked in the background."
     )
     data["NSCameraUsageDescription"] = (
-        "Umrah Trip opens the camera only when you tap the camera button, to "
-        "take a photo and send it to your paired partner."
+        "Umrah Trip uses the camera to take photos you choose to send, and "
+        "for video calls with your friends and paired partner."
     )
+    data["NSMicrophoneUsageDescription"] = (
+        "Umrah Trip uses the microphone for voice and video calls with your "
+        "friends and paired partner."
+    )
+    data.setdefault("UIBackgroundModes", [])
+    for m in ("audio",):
+        if m not in data["UIBackgroundModes"]:
+            data["UIBackgroundModes"].append(m)
     data["NSPhotoLibraryUsageDescription"] = (
         "Umrah Trip accesses photos only when you choose one to send to your "
         "paired partner."

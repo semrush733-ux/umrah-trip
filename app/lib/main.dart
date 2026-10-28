@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import 'core/strings.dart';
 import 'core/theme.dart';
+import 'screens/call_screen.dart';
 import 'screens/root.dart';
 import 'screens/splash_screen.dart';
 import 'services/account_service.dart';
@@ -12,6 +13,9 @@ import 'services/notifications_service.dart';
 import 'services/pair_state.dart';
 import 'services/site_service.dart';
 import 'services/social_service.dart';
+
+/// Lets services open screens (e.g. an incoming call) from anywhere.
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +44,14 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
     accountService = AccountService(state, pairState);
     socialService = SocialService(accountService, pairState);
     siteService.addListener(_onSiteUpdate);
+    socialService.incomingCalls.stream.listen((c) {
+      final nav = appNavigatorKey.currentState;
+      if (nav == null) return;
+      nav.push(MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => CallScreen.incoming(
+              thread: c.thread, peerName: c.callerName, video: c.video, callId: c.callId)));
+    });
     state.init().catchError((e) {
       // Never let a startup error strand the user on the splash screen.
       debugPrint('AppState.init error: $e');
@@ -90,6 +102,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
             child: Directionality(
               textDirection: app.language.direction,
               child: MaterialApp(
+                navigatorKey: appNavigatorKey,
                 title: 'Umrah Trip',
                 debugShowCheckedModeBanner: false,
                 theme: buildLightTheme(),

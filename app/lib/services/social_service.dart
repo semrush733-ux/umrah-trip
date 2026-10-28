@@ -50,6 +50,14 @@ class ChatMessage {
       );
 }
 
+class IncomingCall {
+  final String thread;
+  final String callId;
+  final String callerName;
+  final bool video;
+  const IncomingCall(this.thread, this.callId, this.callerName, this.video);
+}
+
 class SocialResult {
   final bool ok;
   final Map<String, dynamic> data;
@@ -70,6 +78,14 @@ class SocialService extends ChangeNotifier {
   final Map<String, int> _latestId = {}; // thread → latest message id on server
   final Map<String, int> _seenId = {}; // thread → last id the user has seen
   String callServer = 'https://meet.jit.si';
+  /// STUN/TURN servers for in-app calls (from the website admin settings).
+  List<Map<String, dynamic>> iceServers = [
+    {'urls': ['stun:stun.l.google.com:19302']}
+  ];
+
+  /// Fires when someone starts calling us (thread, call_id, caller, video).
+  final StreamController<IncomingCall> incomingCalls = StreamController.broadcast();
+  final Set<String> _announcedCalls = {};
   String? activeThread; // the chat currently open (no alerts for it)
   Timer? _timer;
 
@@ -86,6 +102,7 @@ class SocialService extends ChangeNotifier {
       } catch (_) {}
     }
     account.addListener(_onAccountChanged);
+    pair.addListener(_onAccountChanged);
     _loadCallServer();
     _onAccountChanged();
   }
@@ -94,19 +111,24 @@ class SocialService extends ChangeNotifier {
   void dispose() {
     _timer?.cancel();
     account.removeListener(_onAccountChanged);
+    pair.removeListener(_onAccountChanged);
+    incomingCalls.close();
     super.dispose();
   }
 
   void _onAccountChanged() {
-    if (account.loggedIn) {
+    final active = account.loggedIn || pair.paired;
+    if (active) {
       if (_timer == null) {
-        _timer = Timer.periodic(const Duration(seconds: 20), (_) => refreshInbox());
+        _timer = Timer.periodic(const Duration(seconds: 8), (_) => refreshInbox());
         refreshFriends();
         refreshInbox();
       }
     } else {
       _timer?.cancel();
       _timer = null;
+    }
+    if (!account.loggedIn && friends.isNotEmpty) {
       friends = [];
       pendingRequests = 0;
       notifyListeners();
@@ -119,6 +141,10 @@ class SocialService extends ChangeNotifier {
       final j = jsonDecode(r.body) as Map<String, dynamic>;
       final cs = '${j['call_server'] ?? ''}';
       if (cs.startsWith('http')) callServer = cs.replaceAll(RegExp(r'/+$'), '');
+      final ice = j['ice_servers'];
+      if (ice is List && ice.isNotEmpty) {
+        iceServers = ice.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+      }
     } catch (_) {}
   }
 
@@ -230,6 +256,27 @@ class SocialService extends ChangeNotifier {
     return r.ok ? url : null;
   }
 
+  // ---------------- in-app calls (WebRTC signaling) ----------------
+
+  Future<SocialResult> callStart(String thread, Map<String, dynamic> offer, bool video) =>
+      _post('call/start', {'thread': thread, 'offer': offer, 'video': video, ..._auth(thread)});
+
+  Future<Map<String, dynamic>?> callGet(String thread, String callId) async {
+    final r = await _post('call/get', {'thread': thread, 'call_id': callId, ..._auth(thread)},
+        timeout: const Duration(seconds: 10));
+    final c = r.data['call'];
+    return r.ok && c is Map ? Map<String, dynamic>.from(c) : null;
+  }
+
+  Future<SocialResult> callAnswer(String thread, String callId, Map<String, dynamic> answer) =>
+      _post('call/answer', {'thread': thread, 'call_id': callId, 'answer': answer, ..._auth(thread)});
+
+  Future<SocialResult> callEnd(String thread, String callId, {bool declined = false}) => _post(
+      'call/end',
+      {'thread': thread, 'call_id': callId, 'status': declined ? 'declined' : 'ended', ..._auth(thread)});
+
+  void markCallHandled(String callId) => _announcedCalls.add(callId);
+
   // ---------------- unread + incoming calls ----------------
 
   int unreadFor(String thread) {
@@ -251,8 +298,12 @@ class SocialService extends ChangeNotifier {
   }
 
   Future<void> refreshInbox() async {
-    if (!account.loggedIn) return;
-    final r = await _post('chat/inbox', {'token': account.token});
+    if (!account.loggedIn && !pair.paired) return;
+    final r = await _post('chat/inbox', {
+      if (account.loggedIn) 'token': account.token,
+      if (pair.paired) 'pair_thread': 'pair:${pair.code}',
+      if (pair.paired) 'ptoken': pair.token,
+    });
     if (!r.ok) return;
     final prevPending = pendingRequests;
     pendingRequests = int.tryParse('${r.data['pending_requests']}') ?? 0;
@@ -263,14 +314,19 @@ class SocialService extends ChangeNotifier {
         final m = ChatMessage.fromJson(Map<String, dynamic>.from(raw));
         final before = _latestId['$thread'] ?? 0;
         _latestId['$thread'] = m.id;
-        final isNew = m.id > before && before != 0;
-        if (isNew && !m.mine && activeThread != thread) {
+        final isNew = m.id > before && (before != 0 || m.type == 'call');
+        if (isNew && !m.mine && (activeThread != thread || m.type == 'call')) {
           if (m.type == 'call' &&
-              DateTime.now().difference(m.at) < const Duration(minutes: 2)) {
-            final video = m.body is Map && (m.body as Map)['video'] == true;
+              DateTime.now().difference(m.at) < const Duration(minutes: 1)) {
+            final b = m.body is Map ? Map<String, dynamic>.from(m.body as Map) : <String, dynamic>{};
+            final video = b['video'] == true;
+            final callId = '${b['call_id'] ?? ''}';
+            if (callId.isNotEmpty && _announcedCalls.add(callId)) {
+              incomingCalls.add(IncomingCall('$thread', callId, m.name, video));
+            }
             NotificationsService.instance.showAnnouncement(
                 video ? '📹 Incoming video call' : '📞 Incoming voice call',
-                '${m.name} is calling — open Chat to join');
+                '${m.name} is calling you');
           } else {
             NotificationsService.instance.showAnnouncement(
                 '💬 ${m.name}',

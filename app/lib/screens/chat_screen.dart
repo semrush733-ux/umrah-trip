@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/theme.dart';
 import '../services/app_state.dart';
 import '../services/social_service.dart';
+import 'call_screen.dart';
 
 /// Live chat (polling every 3 s while open) with text, photos, location and
 /// one-tap voice/video calls (private Jitsi room).
@@ -143,15 +144,13 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _call({required bool video}) async {
-    final url = await _social.startCall(widget.thread, video: video);
+    await Navigator.of(context).push(MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => CallScreen.outgoing(
+            thread: widget.thread, peerName: widget.title, video: video)));
     if (!mounted) return;
-    if (url == null) {
-      _snack('Could not start the call');
-      return;
-    }
     await _load();
     _toBottom();
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   void _snack(String m) =>
@@ -238,6 +237,8 @@ class _ChatScreenState extends State<ChatScreen> {
                             padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
                             itemCount: _msgs.length,
                             itemBuilder: (_, i) => _Bubble(
+                              thread: widget.thread,
+                              peerName: widget.title,
                               m: _msgs[i],
                               showName: !widget.thread.startsWith('dm:') &&
                                   !_msgs[i].mine,
@@ -292,7 +293,10 @@ class _ChatScreenState extends State<ChatScreen> {
 class _Bubble extends StatelessWidget {
   final ChatMessage m;
   final bool showName;
-  const _Bubble({required this.m, required this.showName});
+  final String thread;
+  final String peerName;
+  const _Bubble(
+      {required this.m, required this.showName, required this.thread, required this.peerName});
 
   @override
   Widget build(BuildContext context) {
@@ -343,6 +347,8 @@ class _Bubble extends StatelessWidget {
         final b = m.body is Map ? m.body as Map : const {};
         final video = b['video'] == true;
         final url = '${b['url'] ?? ''}';
+        final callId = '${b['call_id'] ?? ''}';
+        final fresh = DateTime.now().difference(m.at) < const Duration(minutes: 1);
         content = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -362,11 +368,23 @@ class _Bubble extends StatelessWidget {
                   minimumSize: const Size(0, 40),
                   backgroundColor: mine ? AppColors.gold : AppColors.emerald,
                   foregroundColor: mine ? AppColors.slate : Colors.white),
-              onPressed: url.isEmpty
-                  ? null
-                  : () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+              onPressed: callId.isNotEmpty
+                  ? (mine || !fresh
+                      ? () => Navigator.of(context).push(MaterialPageRoute(
+                          fullscreenDialog: true,
+                          builder: (_) => CallScreen.outgoing(
+                              thread: thread, peerName: peerName, video: video)))
+                      : () => Navigator.of(context).push(MaterialPageRoute(
+                          fullscreenDialog: true,
+                          builder: (_) => CallScreen.incoming(
+                              thread: thread, peerName: m.name, video: video, callId: callId))))
+                  : (url.isEmpty
+                      ? null
+                      : () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)),
               icon: Icon(video ? Icons.videocam_rounded : Icons.call_rounded, size: 18),
-              label: Text(mine ? 'Rejoin' : 'Join call'),
+              label: Text(callId.isNotEmpty
+                  ? (mine || !fresh ? 'Call back' : 'Answer')
+                  : (mine ? 'Rejoin' : 'Join call')),
             ),
           ],
         );

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BWP Umrah Pair
  * Description: Umrah Trip app backend — user accounts with cloud backup/restore, friends, live chat and calls, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.4.0
+ * Version: 1.5.0
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.4.0');
+define('BWP_UMRAH_PAIR_VERSION', '1.5.0');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -76,6 +76,23 @@ function bwp_umrah_pair_install() {
         created BIGINT UNSIGNED NOT NULL,
         PRIMARY KEY (id),
         KEY thread_id (thread, id)
+    ) $charset;");
+    $calls = $wpdb->prefix . 'bwp_umrah_calls';
+    dbDelta("CREATE TABLE $calls (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        call_id VARCHAR(24) NOT NULL,
+        thread VARCHAR(64) NOT NULL,
+        caller_key VARCHAR(40) NOT NULL,
+        caller_name VARCHAR(80) NOT NULL DEFAULT '',
+        video TINYINT(1) NOT NULL DEFAULT 0,
+        status VARCHAR(12) NOT NULL DEFAULT 'ringing',
+        offer LONGTEXT NULL,
+        answer LONGTEXT NULL,
+        created BIGINT UNSIGNED NOT NULL,
+        updated BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY call_id (call_id),
+        KEY thread (thread)
     ) $charset;");
     update_option('bwp_umrah_pair_db', BWP_UMRAH_PAIR_VERSION);
 }
@@ -216,6 +233,10 @@ add_action('rest_api_init', function () {
     register_rest_route($ns, '/chat/send',        $pub + ['methods' => 'POST', 'callback' => 'bwp_uc_send']);
     register_rest_route($ns, '/chat/poll',        $pub + ['methods' => 'POST', 'callback' => 'bwp_uc_poll']);
     register_rest_route($ns, '/chat/inbox',       $pub + ['methods' => 'POST', 'callback' => 'bwp_uc_inbox']);
+    register_rest_route($ns, '/call/start',  $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_start']);
+    register_rest_route($ns, '/call/get',    $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_get']);
+    register_rest_route($ns, '/call/answer', $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_answer']);
+    register_rest_route($ns, '/call/end',    $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_end']);
 });
 
 /**
@@ -277,6 +298,10 @@ function bwp_up_settings() {
         'ai_api_key' => '',
         'ai_model' => 'claude-haiku-5-5',
         'call_server' => 'https://meet.jit.si',
+        'stun_url' => 'stun:stun.l.google.com:19302',
+        'turn_url' => '',
+        'turn_username' => '',
+        'turn_credential' => '',
     ];
     $opt = get_option('bwp_umrah_app', []);
     return array_merge($defaults, is_array($opt) ? $opt : []);
@@ -296,6 +321,7 @@ function bwp_up_route_config() {
         'ai_enabled' => $s['ai_api_key'] !== '',
         'plugin_version' => BWP_UMRAH_PAIR_VERSION,
         'call_server' => $s['call_server'] ?: 'https://meet.jit.si',
+        'ice_servers' => bwp_ucall_ice_servers($s),
     ]);
 }
 
@@ -358,6 +384,10 @@ function bwp_up_admin_page() {
             'ai_api_key' => sanitize_text_field($_POST['ai_api_key'] ?? ''),
             'ai_model' => sanitize_text_field($_POST['ai_model'] ?? 'claude-haiku-5-5'),
             'call_server' => esc_url_raw(trim($_POST['call_server'] ?? 'https://meet.jit.si')),
+            'stun_url' => sanitize_text_field($_POST['stun_url'] ?? 'stun:stun.l.google.com:19302'),
+            'turn_url' => sanitize_text_field($_POST['turn_url'] ?? ''),
+            'turn_username' => sanitize_text_field($_POST['turn_username'] ?? ''),
+            'turn_credential' => sanitize_text_field($_POST['turn_credential'] ?? ''),
         ];
         // Bump announcement timestamp only when its content changed.
         if ($new['announcement_title'] !== $s['announcement_title'] || $new['announcement_body'] !== $s['announcement_body']) {
@@ -395,7 +425,15 @@ function bwp_up_admin_page() {
           <tr><th>AI API key (Anthropic)</th>
             <td><input type="password" name="ai_api_key" value="<?php echo esc_attr($s['ai_api_key']); ?>" class="regular-text" autocomplete="off">
             <p class="description">Powers the in-app AI assistant. Key stays on this server only.</p></td></tr>
-          <tr><th>Call server (Jitsi)</th>
+          <tr><th colspan="2"><h2 style="margin:10px 0 0">In-app calls (WebRTC)</h2>
+            <p class="description" style="font-weight:normal">Voice/video calls run inside the app — no login, no other app. Audio/video goes phone-to-phone; this site only connects the two phones.
+            STUN is enough on most Wi-Fi. For mobile data / strict networks add a TURN server (e.g. a free metered.ca or Cloudflare TURN account) so calls always connect.</p></th></tr>
+          <tr><th>STUN URL</th><td><input type="text" name="stun_url" value="<?php echo esc_attr($s['stun_url']); ?>" class="regular-text"></td></tr>
+          <tr><th>TURN URL(s)</th><td><input type="text" name="turn_url" value="<?php echo esc_attr($s['turn_url']); ?>" class="regular-text" placeholder="turn:relay.example.com:3478, turns:relay.example.com:443?transport=tcp">
+            <p class="description">Comma-separate several URLs.</p></td></tr>
+          <tr><th>TURN username</th><td><input type="text" name="turn_username" value="<?php echo esc_attr($s['turn_username']); ?>" class="regular-text"></td></tr>
+          <tr><th>TURN credential</th><td><input type="password" name="turn_credential" value="<?php echo esc_attr($s['turn_credential']); ?>" class="regular-text" autocomplete="off"></td></tr>
+          <tr><th>Backup call server (Jitsi, optional)</th>
             <td><input type="url" name="call_server" value="<?php echo esc_attr($s['call_server']); ?>" class="regular-text">
             <p class="description">Voice/video calls open a private room on this Jitsi server. Default https://meet.jit.si (free). You can point this to your own Jitsi server later.</p></td></tr>
           <tr><th>AI model</th>
@@ -936,23 +974,34 @@ function bwp_uc_poll(WP_REST_Request $req) {
 /** Latest message per friend thread (for unread badges + incoming call alerts). */
 function bwp_uc_inbox(WP_REST_Request $req) {
     global $wpdb;
-    $me = bwp_ua_find_by_token($req->get_param('token'));
-    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
-    $fids = $wpdb->get_col($wpdb->prepare(
-        "SELECT id FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'accepted'", $me['id'], $me['id']
-    ));
-    $threads = array_map(function ($f) { return 'dm:' . (int) $f; }, $fids);
-    $pt = (string) $req->get_param('pair_thread');
     $out = [];
-    $mk = 'u:' . (int) $me['id'];
-    foreach ($threads as $th) {
-        $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s ORDER BY id DESC LIMIT 1', $th), ARRAY_A);
-        if ($m) $out[$th] = bwp_uc_format($m, $mk);
+    $pending = 0;
+    $tok = (string) $req->get_param('token');
+    if ($tok !== '') {
+        $me = bwp_ua_find_by_token($tok);
+        if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+        $fids = $wpdb->get_col($wpdb->prepare(
+            "SELECT id FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'accepted'", $me['id'], $me['id']
+        ));
+        $mk = 'u:' . (int) $me['id'];
+        foreach ($fids as $f) {
+            $th = 'dm:' . (int) $f;
+            $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s ORDER BY id DESC LIMIT 1', $th), ARRAY_A);
+            if ($m) $out[$th] = bwp_uc_format($m, $mk);
+        }
+        $pending = (int) $wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'pending' AND requested_by <> %d",
+            $me['id'], $me['id'], $me['id']
+        ));
     }
-    $pending = (int) $wpdb->get_var($wpdb->prepare(
-        "SELECT COUNT(*) FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'pending' AND requested_by <> %d",
-        $me['id'], $me['id'], $me['id']
-    ));
+    $pt = substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $req->get_param('pair_thread')), 0, 60);
+    if (strpos($pt, 'pair:') === 0) {
+        $who = bwp_uc_auth($req, $pt);
+        if (!($who instanceof WP_REST_Response)) {
+            $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s ORDER BY id DESC LIMIT 1', $pt), ARRAY_A);
+            if ($m) $out[$pt] = bwp_uc_format($m, $who[0]);
+        }
+    }
     return bwp_up_json(['latest' => (object) $out, 'pending_requests' => $pending]);
 }
 
@@ -962,4 +1011,121 @@ add_action('init', function () {
     set_transient('bwp_uc_gc', 1, DAY_IN_SECONDS);
     global $wpdb;
     $wpdb->query($wpdb->prepare('DELETE FROM ' . bwp_uc_table() . ' WHERE created < %d', time() - 120 * DAY_IN_SECONDS));
+});
+
+
+// ================================================================ in-app calls (WebRTC signaling)
+// Non-trickle ICE: each side sends ONE complete SDP (with candidates) — the
+// site only relays offer/answer; media flows peer-to-peer (or via TURN).
+
+function bwp_ucall_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_calls'; }
+
+function bwp_ucall_ice_servers($s) {
+    $list = [];
+    $stun = trim((string) ($s['stun_url'] ?? ''));
+    if ($stun !== '') $list[] = ['urls' => array_values(array_filter(array_map('trim', explode(',', $stun))))];
+    $turn = trim((string) ($s['turn_url'] ?? ''));
+    if ($turn !== '') {
+        $list[] = [
+            'urls' => array_values(array_filter(array_map('trim', explode(',', $turn)))),
+            'username' => (string) ($s['turn_username'] ?? ''),
+            'credential' => (string) ($s['turn_credential'] ?? ''),
+        ];
+    }
+    return $list;
+}
+
+function bwp_ucall_load($thread, $call_id) {
+    global $wpdb;
+    return $wpdb->get_row($wpdb->prepare(
+        'SELECT * FROM ' . bwp_ucall_table() . ' WHERE call_id = %s AND thread = %s', $call_id, $thread
+    ), ARRAY_A);
+}
+
+function bwp_ucall_thread(WP_REST_Request $req) {
+    return substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $req->get_param('thread')), 0, 60);
+}
+
+function bwp_ucall_state($c, $my_key) {
+    $status = $c['status'];
+    if ($status === 'ringing' && bwp_up_now() - (int) $c['created'] > 60) $status = 'missed';
+    return [
+        'call_id' => $c['call_id'], 'status' => $status, 'video' => (bool) $c['video'],
+        'caller_name' => $c['caller_name'], 'i_am_caller' => $c['caller_key'] === $my_key,
+        'offer' => $c['offer'] ? json_decode($c['offer'], true) : null,
+        'answer' => $c['answer'] ? json_decode($c['answer'], true) : null,
+        'created' => (int) $c['created'],
+    ];
+}
+
+function bwp_ucall_start(WP_REST_Request $req) {
+    global $wpdb;
+    if (bwp_up_rate_limited('call_start', 120, HOUR_IN_SECONDS)) return bwp_up_err('Too many calls, please wait', 429);
+    $thread = bwp_ucall_thread($req);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    $offer = $req->get_param('offer');
+    if (!is_array($offer) || empty($offer['sdp'])) return bwp_up_err('Missing call offer');
+    $video = (bool) $req->get_param('video');
+    $call_id = strtolower(wp_generate_password(16, false, false));
+    $now = bwp_up_now();
+    $wpdb->insert(bwp_ucall_table(), [
+        'call_id' => $call_id, 'thread' => $thread, 'caller_key' => $who[0], 'caller_name' => $who[1],
+        'video' => $video ? 1 : 0, 'status' => 'ringing',
+        'offer' => wp_json_encode(['type' => (string) ($offer['type'] ?? 'offer'), 'sdp' => (string) $offer['sdp']]),
+        'answer' => null, 'created' => $now, 'updated' => $now,
+    ]);
+    // Drop a call card into the chat so the other side sees it.
+    $wpdb->insert(bwp_uc_table(), [
+        'thread' => $thread, 'sender_key' => $who[0], 'sender_name' => $who[1], 'type' => 'call',
+        'body' => wp_json_encode(['call_id' => $call_id, 'video' => $video]), 'created' => $now,
+    ]);
+    return bwp_up_json(['call_id' => $call_id]);
+}
+
+function bwp_ucall_get(WP_REST_Request $req) {
+    $thread = bwp_ucall_thread($req);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    $c = bwp_ucall_load($thread, (string) $req->get_param('call_id'));
+    if (!$c) return bwp_up_err('Call not found', 404);
+    return bwp_up_json(['call' => bwp_ucall_state($c, $who[0])]);
+}
+
+function bwp_ucall_answer(WP_REST_Request $req) {
+    global $wpdb;
+    $thread = bwp_ucall_thread($req);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    $c = bwp_ucall_load($thread, (string) $req->get_param('call_id'));
+    if (!$c) return bwp_up_err('Call not found', 404);
+    if ($c['caller_key'] === $who[0]) return bwp_up_err('You started this call');
+    if ($c['status'] !== 'ringing') return bwp_up_err('This call has already ended', 409);
+    $ans = $req->get_param('answer');
+    if (!is_array($ans) || empty($ans['sdp'])) return bwp_up_err('Missing answer');
+    $wpdb->update(bwp_ucall_table(), [
+        'answer' => wp_json_encode(['type' => (string) ($ans['type'] ?? 'answer'), 'sdp' => (string) $ans['sdp']]),
+        'status' => 'active', 'updated' => bwp_up_now(),
+    ], ['id' => $c['id']]);
+    return bwp_up_json([]);
+}
+
+function bwp_ucall_end(WP_REST_Request $req) {
+    global $wpdb;
+    $thread = bwp_ucall_thread($req);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    $c = bwp_ucall_load($thread, (string) $req->get_param('call_id'));
+    if (!$c) return bwp_up_err('Call not found', 404);
+    $st = $req->get_param('status') === 'declined' ? 'declined' : 'ended';
+    $wpdb->update(bwp_ucall_table(), ['status' => $st, 'updated' => bwp_up_now()], ['id' => $c['id']]);
+    return bwp_up_json([]);
+}
+
+// Clean up call rows older than 2 days.
+add_action('init', function () {
+    if (get_transient('bwp_ucall_gc')) return;
+    set_transient('bwp_ucall_gc', 1, 6 * HOUR_IN_SECONDS);
+    global $wpdb;
+    $wpdb->query($wpdb->prepare('DELETE FROM ' . bwp_ucall_table() . ' WHERE created < %d', time() - 2 * DAY_IN_SECONDS));
 });
