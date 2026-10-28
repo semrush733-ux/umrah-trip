@@ -63,7 +63,10 @@ class PairService {
       if (r.statusCode == 200 && (j['ok'] == true)) {
         return PairApiResult(true, j);
       }
-      return PairApiResult(false, j, j['error']?.toString() ?? 'HTTP ${r.statusCode}');
+      // WordPress REST errors come as {code, message}; ours as {error}.
+      final msg = j['error'] ?? j['message'] ?? j['code'];
+      return PairApiResult(false, j,
+          msg != null ? '$msg (HTTP ${r.statusCode})' : 'HTTP ${r.statusCode}');
     } catch (e) {
       // Default server: if https is unreachable (e.g. SSL not yet installed),
       // fall back to http once and remember the working scheme.
@@ -130,6 +133,36 @@ class PairService {
             if (caption != null && caption.isNotEmpty) 'caption': caption,
           },
           timeout: const Duration(seconds: 45));
+
+  /// Connection self-test used by the "Test connection" button.
+  Future<String> diagnose() async {
+    final sb = StringBuffer('Server: $baseUrl\n');
+    try {
+      final r = await _client
+          .get(Uri.parse('$baseUrl/wp-json/umrah-pair/v1/config'))
+          .timeout(const Duration(seconds: 15));
+      sb.writeln('GET /config → HTTP ${r.statusCode}');
+      try {
+        final j = jsonDecode(r.body) as Map<String, dynamic>;
+        if (j['ok'] == true) {
+          sb.writeln('✅ Plugin reachable (v${j['plugin_version'] ?? '1.0/1.1'})');
+        } else {
+          sb.writeln('⚠️ ${j['message'] ?? j['error'] ?? j['code'] ?? 'unexpected reply'}');
+          if ('${j['code']}' == 'rest_no_route') {
+            sb.writeln('→ Plugin activate nahi / purana hai, ya Permalinks "Plain" hain.');
+          }
+        }
+      } catch (_) {
+        final s = r.body.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
+        sb.writeln('⚠️ Not JSON: ${s.substring(0, s.length > 140 ? 140 : s.length)}');
+        sb.writeln('→ Hosting firewall / security plugin REST API block kar raha hai.');
+      }
+    } catch (e) {
+      sb.writeln('❌ Network: $e');
+      sb.writeln('→ Internet / DNS / SSL check karein.');
+    }
+    return sb.toString();
+  }
 
   Future<PairApiResult> unpair(String code, String token) =>
       _post('unpair', {'code': code, 'token': token});

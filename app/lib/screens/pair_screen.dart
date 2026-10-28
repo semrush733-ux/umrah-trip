@@ -70,6 +70,33 @@ class _PairScreenState extends State<PairScreen> {
             Text(pair.lastError!,
                 style: const TextStyle(color: Colors.redAccent, fontSize: 12.5)),
           ],
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: _busy
+                ? null
+                : () => _run(() async {
+                      final report = await context.read<PairState>().api.diagnose();
+                      if (!mounted) return;
+                      showDialog<void>(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Connection test'),
+                          content: SelectableText(report),
+                          actions: [
+                            TextButton(
+                                onPressed: () =>
+                                    Clipboard.setData(ClipboardData(text: report)),
+                                child: const Text('Copy')),
+                            FilledButton(
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text('OK')),
+                          ],
+                        ),
+                      );
+                    }),
+            icon: const Icon(Icons.network_check_rounded),
+            label: const Text('Test connection'),
+          ),
           const SizedBox(height: 24),
           Text(
             'Privacy: pairing is mutual — both phones must use the same code. '

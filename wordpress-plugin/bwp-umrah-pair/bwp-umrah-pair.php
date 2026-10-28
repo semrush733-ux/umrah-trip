@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BWP Umrah Pair
  * Description: Umrah Trip app backend — couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.1.0');
+define('BWP_UMRAH_PAIR_VERSION', '1.2.0');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -96,8 +96,19 @@ function bwp_up_gc() { // light garbage collection of stale pairs
     ));
 }
 
+function bwp_up_client_ip() {
+    foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_REAL_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $h) {
+        if (!empty($_SERVER[$h])) {
+            $ip = trim(explode(',', (string) $_SERVER[$h])[0]);
+            $ip = preg_replace('/[^0-9a-fA-F:.]/', '', $ip);
+            if ($ip !== '') return $ip;
+        }
+    }
+    return 'x';
+}
+
 function bwp_up_rate_limited($bucket, $limit, $window) {
-    $ip = isset($_SERVER['REMOTE_ADDR']) ? preg_replace('/[^0-9a-fA-F:.]/', '', $_SERVER['REMOTE_ADDR']) : 'x';
+    $ip = bwp_up_client_ip();
     $key = 'bwp_up_rl_' . md5($bucket . '|' . $ip);
     $n = (int) get_transient($key);
     if ($n >= $limit) return true;
@@ -118,6 +129,24 @@ function bwp_up_sanitize_name($name) {
     $name = mb_substr($name, 0, 30);
     return $name !== '' ? $name : 'Pilgrim';
 }
+
+// ---- Keep our public endpoints reachable & uncached ----
+// Security plugins often block the REST API for logged-out users; the app
+// is always logged-out, so allow ONLY this namespace through.
+add_filter('rest_authentication_errors', function ($result) {
+    $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+    if (is_wp_error($result) && strpos($uri, 'umrah-pair/v1') !== false) return null;
+    return $result;
+}, 999);
+
+add_filter('rest_post_dispatch', function ($response, $server, $request) {
+    if (strpos($request->get_route(), '/umrah-pair/v1') === 0 && $response instanceof WP_REST_Response) {
+        $response->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+        $response->header('X-LiteSpeed-Cache-Control', 'no-cache');
+        $response->header('CDN-Cache-Control', 'no-store');
+    }
+    return $response;
+}, 10, 3);
 
 // ---------------------------------------------------------------- routes
 
@@ -142,9 +171,9 @@ add_action('rest_api_init', function () {
  * IP) joins it automatically.
  */
 function bwp_up_route_nearby(WP_REST_Request $req) {
-    if (bwp_up_rate_limited('nearby', 30, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
+    if (bwp_up_rate_limited('nearby', 60, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
     $name = bwp_up_sanitize_name($req->get_param('name'));
-    $ip = isset($_SERVER['REMOTE_ADDR']) ? preg_replace('/[^0-9a-fA-F:.]/', '', $_SERVER['REMOTE_ADDR']) : 'x';
+    $ip = bwp_up_client_ip();
     $key = 'bwp_up_nearby_' . md5($ip);
 
     $pending = get_transient($key);
@@ -211,6 +240,7 @@ function bwp_up_route_config() {
             'ts'    => (int) $s['announcement_ts'],
         ],
         'ai_enabled' => $s['ai_api_key'] !== '',
+        'plugin_version' => BWP_UMRAH_PAIR_VERSION,
     ]);
 }
 
@@ -320,7 +350,7 @@ function bwp_up_admin_page() {
 
 function bwp_up_route_create(WP_REST_Request $req) {
     bwp_up_gc();
-    if (bwp_up_rate_limited('create', 10, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
+    if (bwp_up_rate_limited('create', 40, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
     $name = bwp_up_sanitize_name($req->get_param('name'));
     $token = wp_generate_password(32, false, false);
 
@@ -340,7 +370,7 @@ function bwp_up_route_create(WP_REST_Request $req) {
 }
 
 function bwp_up_route_join(WP_REST_Request $req) {
-    if (bwp_up_rate_limited('join', 20, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
+    if (bwp_up_rate_limited('join', 60, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
     $code = strtoupper(sanitize_text_field((string) $req->get_param('code')));
     $pair = bwp_up_load($code);
     if (!$pair) return bwp_up_err('Code not found — check the 6-character code', 404);
@@ -416,7 +446,7 @@ function bwp_up_route_sync(WP_REST_Request $req) {
 }
 
 function bwp_up_route_photo(WP_REST_Request $req) {
-    if (bwp_up_rate_limited('photo', 40, HOUR_IN_SECONDS)) return bwp_up_err('Too many uploads', 429);
+    if (bwp_up_rate_limited('photo', 150, HOUR_IN_SECONDS)) return bwp_up_err('Too many uploads', 429);
     $code = strtoupper(sanitize_text_field((string) $req->get_param('code')));
     $pair = bwp_up_load($code);
     $me = bwp_up_auth($pair, (string) $req->get_param('token'));
@@ -439,6 +469,7 @@ function bwp_up_route_photo(WP_REST_Request $req) {
     $up = wp_upload_bits($name, null, $bytes);
     if (!empty($up['error'])) return bwp_up_err('Upload failed: ' . $up['error'], 500);
 
+    if (strpos(home_url(), 'https://') === 0) $up['url'] = set_url_scheme($up['url'], 'https');
     $caption = mb_substr(sanitize_text_field((string) $req->get_param('caption')), 0, 120);
     $pair['photos'][] = [
         'by' => $pair['members'][$me]['name'],

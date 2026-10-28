@@ -59,6 +59,11 @@ def patch_android_manifest() -> None:
             text,
         )
 
+    # Allow the http fallback for the pairing server (Android 9+ blocks
+    # cleartext by default).
+    if 'android:usesCleartextTraffic' not in text:
+        text = text.replace("<application", '<application android:usesCleartextTraffic="true"', 1)
+
     # App label
     text = text.replace('android:label="umrah_journey"', 'android:label="Umrah Trip"')
     mf.write_text(text)
@@ -89,6 +94,14 @@ def patch_ios_plist() -> None:
     data["GMapsAPIKey"] = MAPS_KEY
     # TTS / AVSpeech needs no permission; url_launcher queries:
     data["MinimumOSVersion"] = "15.5"
+    # The app falls back to http://umrahtrip.sbs when SSL is unavailable;
+    # without this exception iOS ATS silently blocks every pairing call.
+    ats = data.setdefault("NSAppTransportSecurity", {})
+    ex = ats.setdefault("NSExceptionDomains", {})
+    ex["umrahtrip.sbs"] = {
+        "NSIncludesSubdomains": True,
+        "NSExceptionAllowsInsecureHTTPLoads": True,
+    }
     data.setdefault("LSApplicationQueriesSchemes", [])
     for scheme in ("comgooglemaps", "maps"):
         if scheme not in data["LSApplicationQueriesSchemes"]:
