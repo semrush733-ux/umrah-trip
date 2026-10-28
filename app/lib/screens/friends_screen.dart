@@ -12,6 +12,7 @@ import '../services/notifications_service.dart';
 import '../widgets/user_avatar.dart';
 import 'account_screen.dart';
 import 'chat_screen.dart';
+import 'groups_screen.dart';
 
 /// Chats & friends: add people by email or @username, accept requests,
 /// open chats (and the couple-pairing partner chat).
@@ -32,6 +33,7 @@ class _FriendsScreenState extends State<FriendsScreen> with WidgetsBindingObserv
     super.initState();
     final s = context.read<SocialService>();
     s.refreshFriends();
+    s.refreshGroups();
     s.refreshInbox();
     _checkNotif();
     WidgetsBinding.instance.addObserver(this);
@@ -205,6 +207,7 @@ class _FriendsScreenState extends State<FriendsScreen> with WidgetsBindingObserv
       body: RefreshIndicator(
         onRefresh: () async {
           await social.refreshFriends();
+          await social.refreshGroups();
           await social.refreshInbox();
           await _checkNotif();
         },
@@ -339,6 +342,54 @@ class _FriendsScreenState extends State<FriendsScreen> with WidgetsBindingObserv
               const SizedBox(height: 8),
             ],
 
+            Row(children: [
+              const Expanded(child: _Header('Groups')),
+              TextButton.icon(
+                onPressed: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const CreateGroupScreen())),
+                icon: const Icon(Icons.group_add_rounded, size: 19),
+                label: const Text('New group'),
+              ),
+            ]),
+            if (social.groups.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Text('Make a family group — chat together, see everyone on one map and get SOS alerts.',
+                    style: TextStyle(
+                        fontSize: 13, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
+              ),
+            ...social.groups.map((g) {
+              final unread = social.unreadFor(g.thread) > 0;
+              return Card(
+                child: ListTile(
+                  leading: const CircleAvatar(
+                      backgroundColor: AppColors.emerald,
+                      child: Icon(Icons.groups_rounded, color: Colors.white)),
+                  title: Text(g.name,
+                      style: TextStyle(fontWeight: unread ? FontWeight.w900 : FontWeight.w700)),
+                  subtitle: Text(g.members.map((m) => m.name).join(', '),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (unread)
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: const BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle),
+                      ),
+                    IconButton(
+                      tooltip: 'Group map',
+                      icon: const Icon(Icons.map_rounded, color: AppColors.emerald),
+                      onPressed: () => Navigator.of(context)
+                          .push(MaterialPageRoute(builder: (_) => GroupMapScreen(group: g))),
+                    ),
+                  ]),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => ChatScreen(
+                          thread: g.thread, title: g.name, subtitle: '${g.members.length} members'))),
+                ),
+              );
+            }),
+            const SizedBox(height: 8),
             const _Header('Chats'),
             if (accepted.isEmpty)
               Padding(

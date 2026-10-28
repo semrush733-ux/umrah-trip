@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BWP Umrah Pair
  * Description: Umrah Trip app backend — user accounts with cloud backup/restore, friends, live chat and calls, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.6.0
+ * Version: 1.7.0
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.6.0');
+define('BWP_UMRAH_PAIR_VERSION', '1.7.0');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -49,6 +49,11 @@ function bwp_umrah_pair_install() {
         tokens TEXT NOT NULL,
         data LONGTEXT NULL,
         data_updated BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        loc_lat DOUBLE NULL,
+        loc_lng DOUBLE NULL,
+        loc_acc FLOAT NULL,
+        loc_at BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        loc_share TINYINT(1) NOT NULL DEFAULT 0,
         created BIGINT UNSIGNED NOT NULL,
         PRIMARY KEY (id),
         UNIQUE KEY email (email),
@@ -94,6 +99,42 @@ function bwp_umrah_pair_install() {
         PRIMARY KEY (id),
         UNIQUE KEY call_id (call_id),
         KEY thread (thread)
+    ) $charset;");
+    $reads = $wpdb->prefix . 'bwp_umrah_reads';
+    dbDelta("CREATE TABLE $reads (
+        thread VARCHAR(64) NOT NULL,
+        member_key VARCHAR(40) NOT NULL,
+        delivered BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        seen BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        typing_until BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        PRIMARY KEY  (thread, member_key)
+    ) $charset;");
+    $groups = $wpdb->prefix . 'bwp_umrah_groups';
+    dbDelta("CREATE TABLE $groups (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        name VARCHAR(60) NOT NULL,
+        owner_id BIGINT UNSIGNED NOT NULL,
+        created BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY  (id)
+    ) $charset;");
+    $gm = $wpdb->prefix . 'bwp_umrah_group_members';
+    dbDelta("CREATE TABLE $gm (
+        group_id BIGINT UNSIGNED NOT NULL,
+        user_id BIGINT UNSIGNED NOT NULL,
+        joined BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY  (group_id, user_id),
+        KEY user_id (user_id)
+    ) $charset;");
+    $push = $wpdb->prefix . 'bwp_umrah_push';
+    dbDelta("CREATE TABLE $push (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        member_key VARCHAR(40) NOT NULL,
+        fcm VARCHAR(255) NOT NULL,
+        platform VARCHAR(10) NOT NULL DEFAULT '',
+        updated BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY  (id),
+        UNIQUE KEY fcm (fcm),
+        KEY member_key (member_key)
     ) $charset;");
     update_option('bwp_umrah_pair_db', BWP_UMRAH_PAIR_VERSION);
 }
@@ -238,6 +279,17 @@ add_action('rest_api_init', function () {
     register_rest_route($ns, '/call/get',    $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_get']);
     register_rest_route($ns, '/call/answer', $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_answer']);
     register_rest_route($ns, '/call/end',    $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_end']);
+    register_rest_route($ns, '/chat/typing',    $pub + ['methods' => 'POST', 'callback' => 'bwp_uc_typing']);
+    register_rest_route($ns, '/groups/create',  $pub + ['methods' => 'POST', 'callback' => 'bwp_ug_create']);
+    register_rest_route($ns, '/groups/list',    $pub + ['methods' => 'POST', 'callback' => 'bwp_ug_list']);
+    register_rest_route($ns, '/groups/add',     $pub + ['methods' => 'POST', 'callback' => 'bwp_ug_add']);
+    register_rest_route($ns, '/groups/leave',   $pub + ['methods' => 'POST', 'callback' => 'bwp_ug_leave']);
+    register_rest_route($ns, '/groups/locations', $pub + ['methods' => 'POST', 'callback' => 'bwp_ug_locations']);
+    register_rest_route($ns, '/loc/update',     $pub + ['methods' => 'POST', 'callback' => 'bwp_uloc_update']);
+    register_rest_route($ns, '/meet/set',       $pub + ['methods' => 'POST', 'callback' => 'bwp_umeet_set']);
+    register_rest_route($ns, '/meet/get',       $pub + ['methods' => 'POST', 'callback' => 'bwp_umeet_get']);
+    register_rest_route($ns, '/sos/send',       $pub + ['methods' => 'POST', 'callback' => 'bwp_usos_send']);
+    register_rest_route($ns, '/push/register',  $pub + ['methods' => 'POST', 'callback' => 'bwp_upush_register']);
 });
 
 /**
@@ -303,6 +355,12 @@ function bwp_up_settings() {
         'turn_url' => '',
         'turn_username' => '',
         'turn_credential' => '',
+        'fcm_api_key' => '',
+        'fcm_project_id' => '',
+        'fcm_sender_id' => '',
+        'fcm_android_app_id' => '',
+        'fcm_ios_app_id' => '',
+        'fcm_service_json' => '',
     ];
     $opt = get_option('bwp_umrah_app', []);
     return array_merge($defaults, is_array($opt) ? $opt : []);
@@ -323,6 +381,11 @@ function bwp_up_route_config() {
         'plugin_version' => BWP_UMRAH_PAIR_VERSION,
         'call_server' => $s['call_server'] ?: 'https://meet.jit.si',
         'ice_servers' => bwp_ucall_ice_servers($s),
+        'firebase' => ($s['fcm_api_key'] !== '' && $s['fcm_project_id'] !== '' && $s['fcm_sender_id'] !== '') ? [
+            'api_key' => $s['fcm_api_key'], 'project_id' => $s['fcm_project_id'],
+            'sender_id' => $s['fcm_sender_id'],
+            'android_app_id' => $s['fcm_android_app_id'], 'ios_app_id' => $s['fcm_ios_app_id'],
+        ] : null,
     ]);
 }
 
@@ -389,7 +452,24 @@ function bwp_up_admin_page() {
             'turn_url' => sanitize_text_field($_POST['turn_url'] ?? ''),
             'turn_username' => sanitize_text_field($_POST['turn_username'] ?? ''),
             'turn_credential' => sanitize_text_field($_POST['turn_credential'] ?? ''),
+            'fcm_api_key' => sanitize_text_field($_POST['fcm_api_key'] ?? ''),
+            'fcm_project_id' => sanitize_text_field($_POST['fcm_project_id'] ?? ''),
+            'fcm_sender_id' => sanitize_text_field($_POST['fcm_sender_id'] ?? ''),
+            'fcm_android_app_id' => sanitize_text_field($_POST['fcm_android_app_id'] ?? ''),
+            'fcm_ios_app_id' => sanitize_text_field($_POST['fcm_ios_app_id'] ?? ''),
+            'fcm_service_json' => trim(wp_unslash($_POST['fcm_service_json'] ?? '')),
         ];
+        if (strpos($new['fcm_service_json'], '{ saved') === 0) $new['fcm_service_json'] = $s['fcm_service_json'];
+        elseif ($new['fcm_service_json'] !== '') {
+            $sj = json_decode($new['fcm_service_json'], true);
+            if (!is_array($sj) || empty($sj['private_key']) || empty($sj['client_email'])) {
+                echo '<div class="notice notice-error"><p>Firebase service account JSON is not valid — not saved.</p></div>';
+                $new['fcm_service_json'] = $s['fcm_service_json'];
+            } elseif ($new['fcm_project_id'] === '' && !empty($sj['project_id'])) {
+                $new['fcm_project_id'] = $sj['project_id'];
+            }
+            delete_transient('bwp_upush_oauth');
+        }
         // Bump announcement timestamp only when its content changed.
         if ($new['announcement_title'] !== $s['announcement_title'] || $new['announcement_body'] !== $s['announcement_body']) {
             $new['announcement_ts'] = time();
@@ -437,6 +517,16 @@ function bwp_up_admin_page() {
           <tr><th>Backup call server (Jitsi, optional)</th>
             <td><input type="url" name="call_server" value="<?php echo esc_attr($s['call_server']); ?>" class="regular-text">
             <p class="description">Voice/video calls open a private room on this Jitsi server. Default https://meet.jit.si (free). You can point this to your own Jitsi server later.</p></td></tr>
+          <tr><th colspan="2"><h2 style="margin:10px 0 0">Push notifications (Firebase) — optional</h2>
+            <p class="description" style="font-weight:normal">Lets calls ring and messages arrive even when the app is closed. Firebase console → Project settings:
+            <b>General</b> tab gives the Web API key, Project ID, Sender ID and the Android / iOS App IDs; <b>Service accounts</b> tab → "Generate new private key" gives the JSON file — paste its full content below. No app update needed.</p></th></tr>
+          <tr><th>Web API key</th><td><input type="text" name="fcm_api_key" value="<?php echo esc_attr($s['fcm_api_key']); ?>" class="regular-text" placeholder="AIza..."></td></tr>
+          <tr><th>Project ID</th><td><input type="text" name="fcm_project_id" value="<?php echo esc_attr($s['fcm_project_id']); ?>" class="regular-text"></td></tr>
+          <tr><th>Sender ID (project number)</th><td><input type="text" name="fcm_sender_id" value="<?php echo esc_attr($s['fcm_sender_id']); ?>" class="regular-text"></td></tr>
+          <tr><th>Android App ID</th><td><input type="text" name="fcm_android_app_id" value="<?php echo esc_attr($s['fcm_android_app_id']); ?>" class="regular-text" placeholder="1:123456789:android:abc..."></td></tr>
+          <tr><th>iOS App ID</th><td><input type="text" name="fcm_ios_app_id" value="<?php echo esc_attr($s['fcm_ios_app_id']); ?>" class="regular-text" placeholder="1:123456789:ios:abc... (needs Apple Developer account)"></td></tr>
+          <tr><th>Service account JSON</th><td><textarea name="fcm_service_json" rows="5" class="large-text code" placeholder='{"type":"service_account", ...}'><?php echo esc_textarea($s['fcm_service_json'] !== '' ? '{ saved — paste again to replace }' : ''); ?></textarea>
+            <p class="description"><?php echo $s['fcm_service_json'] !== '' ? '✅ Saved (hidden). Leave as is to keep it.' : 'Not set.'; ?></p></td></tr>
           <tr><th>AI model</th>
             <td><input type="text" name="ai_model" value="<?php echo esc_attr($s['ai_model']); ?>" class="regular-text"></td></tr>
         </table>
@@ -918,6 +1008,12 @@ function bwp_uc_auth(WP_REST_Request $req, $thread) {
         if (!$f || $f['status'] !== 'accepted') return bwp_up_err('Not allowed in this chat', 403);
         return ['u:' . (int) $me['id'], $me['name']];
     }
+    if (strpos($thread, 'grp:') === 0) {
+        $me = bwp_ua_find_by_token($req->get_param('token'));
+        if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+        if (!bwp_ug_is_member((int) substr($thread, 4), (int) $me['id'])) return bwp_up_err('You are not in this group', 403);
+        return ['u:' . (int) $me['id'], $me['name']];
+    }
     if (strpos($thread, 'pair:') === 0) {
         $code = strtoupper(substr($thread, 5));
         $pair = bwp_up_load($code);
@@ -930,7 +1026,7 @@ function bwp_uc_auth(WP_REST_Request $req, $thread) {
 
 function bwp_uc_format($m, $my_key) {
     $body = $m['body'];
-    $dec = in_array($m['type'], ['location', 'call'], true) ? json_decode($body, true) : null;
+    $dec = in_array($m['type'], ['location', 'call', 'voice', 'sos', 'meet', 'system'], true) ? json_decode($body, true) : null;
     return [
         'id' => (int) $m['id'], 'type' => $m['type'],
         'body' => $dec !== null ? $dec : $body,
@@ -946,7 +1042,7 @@ function bwp_uc_send(WP_REST_Request $req) {
     $who = bwp_uc_auth($req, $thread);
     if ($who instanceof WP_REST_Response) return $who;
     $type = (string) $req->get_param('type');
-    if (!in_array($type, ['text', 'image', 'location', 'call'], true)) $type = 'text';
+    if (!in_array($type, ['text', 'image', 'location', 'call', 'voice'], true)) $type = 'text';
 
     if ($type === 'image') {
         $b64 = (string) $req->get_param('image');
@@ -959,6 +1055,10 @@ function bwp_uc_send(WP_REST_Request $req) {
         $up = wp_upload_bits('umrah-chat/' . md5($thread) . '-' . bwp_up_now() . '-' . wp_generate_password(6, false, false) . ($isJpeg ? '.jpg' : '.png'), null, $bytes);
         if (!empty($up['error'])) return bwp_up_err('Upload failed: ' . $up['error'], 500);
         $body = strpos(home_url(), 'https://') === 0 ? set_url_scheme($up['url'], 'https') : $up['url'];
+    } elseif ($type === 'voice') {
+        $url = bwp_up_store_audio((string) $req->get_param('audio'), 'umrah-chat/v' . md5($thread));
+        if ($url instanceof WP_REST_Response) return $url;
+        $body = wp_json_encode(['url' => $url, 'dur' => max(0, min(600, (int) $req->get_param('duration')))]);
     } elseif ($type === 'location' || $type === 'call') {
         $b = $req->get_param('body');
         if (!is_array($b)) return bwp_up_err('Invalid message');
@@ -980,6 +1080,8 @@ function bwp_uc_send(WP_REST_Request $req) {
         'type' => $type, 'body' => $body, 'created' => bwp_up_now(),
     ]);
     $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE id = %d', $wpdb->insert_id), ARRAY_A);
+    bwp_ur_mark($thread, $who[0], (int) $m['id'], (int) $m['id']);
+    bwp_upush_message($thread, $who, $type, $body);
     return bwp_up_json(['message' => bwp_uc_format($m, $who[0])]);
 }
 
@@ -999,7 +1101,12 @@ function bwp_uc_poll(WP_REST_Request $req) {
         ), ARRAY_A));
     }
     $out = array_map(function ($m) use ($who) { return bwp_uc_format($m, $who[0]); }, $rows);
-    return bwp_up_json(['messages' => $out]);
+    // Read receipts: everything up to the newest message is now delivered;
+    // "seen" is sent by the app while the chat is on screen.
+    $newest = (int) $wpdb->get_var($wpdb->prepare('SELECT MAX(id) FROM ' . bwp_uc_table() . ' WHERE thread = %s', $thread));
+    $seen = (int) $req->get_param('seen');
+    bwp_ur_mark($thread, $who[0], $newest, min($seen, $newest));
+    return bwp_up_json(['messages' => $out] + bwp_ur_peer_state($thread, $who[0]) + ['meet' => bwp_umeet_load($thread)]);
 }
 
 /** Latest message per friend thread (for unread badges + incoming call alerts). */
@@ -1022,6 +1129,11 @@ function bwp_uc_inbox(WP_REST_Request $req) {
             $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s ORDER BY id DESC LIMIT 1', $th), ARRAY_A);
             if ($m) $out[$th] = bwp_uc_format($m, $mk);
         }
+        foreach (bwp_ug_ids_for((int) $me['id']) as $gid) {
+            $th = 'grp:' . (int) $gid;
+            $m = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uc_table() . ' WHERE thread = %s ORDER BY id DESC LIMIT 1', $th), ARRAY_A);
+            if ($m) $out[$th] = bwp_uc_format($m, $mk);
+        }
         $pending = (int) $wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'pending' AND requested_by <> %d",
             $me['id'], $me['id'], $me['id']
@@ -1035,10 +1147,16 @@ function bwp_uc_inbox(WP_REST_Request $req) {
             if ($m) $out[$pt] = bwp_uc_format($m, $who[0]);
         }
     }
+    // Mark the newest message of each thread as delivered to me.
+    foreach ($out as $th => $fm) {
+        $key = (strpos($th, 'pair:') === 0) ? ($who[0] ?? '') : $mk;
+        if ($key !== '') bwp_ur_mark($th, $key, (int) $fm['id'], 0);
+    }
     // Calls ringing for me right now (server clock decides freshness).
     $ringing = [];
     $threads = [];
     if (!empty($mk)) foreach ($fids as $f) $threads['dm:' . (int) $f] = $mk;
+    if (!empty($mk)) foreach (bwp_ug_ids_for((int) substr($mk, 2)) as $gid) $threads['grp:' . (int) $gid] = $mk;
     if (strpos($pt, 'pair:') === 0 && isset($who) && !($who instanceof WP_REST_Response)) $threads[$pt] = $who[0];
     if ($threads) {
         $in = implode(',', array_fill(0, count($threads), '%s'));
@@ -1145,6 +1263,10 @@ function bwp_ucall_start(WP_REST_Request $req) {
         'thread' => $thread, 'sender_key' => $who[0], 'sender_name' => $who[1], 'type' => 'call',
         'body' => wp_json_encode(['call_id' => $call_id, 'video' => $video]), 'created' => $now,
     ]);
+    bwp_upush_send(bwp_thread_others($thread, $who[0]), [
+        'type' => 'call', 'thread' => $thread, 'call_id' => $call_id, 'video' => $video ? '1' : '0',
+        'caller' => $who[1], 'caller_avatar' => (string) bwp_up_avatar_for_key($who[0]),
+    ], ($video ? '📹 ' : '📞 ') . $who[1], $video ? 'Incoming video call' : 'Incoming voice call', true);
     return bwp_up_json(['call_id' => $call_id]);
 }
 
@@ -1198,3 +1320,447 @@ add_action('init', function () {
     global $wpdb;
     $wpdb->query($wpdb->prepare('DELETE FROM ' . bwp_ucall_table() . ' WHERE created < %d', time() - 2 * DAY_IN_SECONDS));
 });
+
+
+// ================================================================ v1.7: receipts, typing, groups, locations, meeting point, SOS, push
+
+function bwp_ur_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_reads'; }
+function bwp_ug_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_groups'; }
+function bwp_ugm_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_group_members'; }
+function bwp_upush_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_push'; }
+
+/** Raise delivered/seen counters for one member of a thread (never lowers them). */
+function bwp_ur_mark($thread, $key, $delivered, $seen) {
+    global $wpdb;
+    if ($key === '' || $thread === '') return;
+    $wpdb->query($wpdb->prepare(
+        'INSERT INTO ' . bwp_ur_table() . ' (thread, member_key, delivered, seen, typing_until) VALUES (%s, %s, %d, %d, 0)
+         ON DUPLICATE KEY UPDATE delivered = GREATEST(delivered, VALUES(delivered)), seen = GREATEST(seen, VALUES(seen))',
+        $thread, $key, max((int) $delivered, (int) $seen), (int) $seen
+    ));
+}
+
+/** Everyone in a thread: [member_key => name]. */
+function bwp_thread_members($thread) {
+    global $wpdb;
+    $out = [];
+    if (strpos($thread, 'dm:') === 0) {
+        $f = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_uf_table() . ' WHERE id = %d', (int) substr($thread, 3)), ARRAY_A);
+        if ($f) foreach ([(int) $f['a_id'], (int) $f['b_id']] as $uid) {
+            $n = $wpdb->get_var($wpdb->prepare('SELECT name FROM ' . bwp_ua_table() . ' WHERE id = %d', $uid));
+            if ($n !== null) $out['u:' . $uid] = $n;
+        }
+    } elseif (strpos($thread, 'grp:') === 0) {
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT u.id, u.name FROM ' . bwp_ugm_table() . ' m JOIN ' . bwp_ua_table() . ' u ON u.id = m.user_id WHERE m.group_id = %d',
+            (int) substr($thread, 4)
+        ), ARRAY_A);
+        foreach ($rows as $r) $out['u:' . (int) $r['id']] = $r['name'];
+    } elseif (strpos($thread, 'pair:') === 0) {
+        $pair = bwp_up_load(strtoupper(substr($thread, 5)));
+        if ($pair) foreach ($pair['members'] as $tkn => $m) $out['p:' . substr(hash('sha256', $tkn), 0, 16)] = $m['name'];
+    }
+    return $out;
+}
+
+function bwp_thread_others($thread, $my_key) {
+    $all = bwp_thread_members($thread);
+    unset($all[$my_key]);
+    return array_keys($all);
+}
+
+/** What the other side(s) have received/seen + who is typing. */
+function bwp_ur_peer_state($thread, $my_key) {
+    global $wpdb;
+    $others = bwp_thread_members($thread);
+    unset($others[$my_key]);
+    if (!$others) return ['peer_delivered' => 0, 'peer_seen' => 0, 'typing' => []];
+    $in = implode(',', array_fill(0, count($others), '%s'));
+    $rows = $wpdb->get_results($wpdb->prepare(
+        'SELECT * FROM ' . bwp_ur_table() . " WHERE thread = %s AND member_key IN ($in)",
+        array_merge([$thread], array_keys($others))
+    ), ARRAY_A);
+    $by = [];
+    foreach ($rows as $r) $by[$r['member_key']] = $r;
+    $del = PHP_INT_MAX; $seen = PHP_INT_MAX; $typing = [];
+    foreach ($others as $k => $name) {
+        $r = $by[$k] ?? null;
+        $del = min($del, $r ? (int) $r['delivered'] : 0);
+        $seen = min($seen, $r ? (int) $r['seen'] : 0);
+        if ($r && (int) $r['typing_until'] > bwp_up_now()) $typing[] = $name;
+    }
+    return ['peer_delivered' => $del, 'peer_seen' => $seen, 'typing' => $typing];
+}
+
+function bwp_uc_typing(WP_REST_Request $req) {
+    global $wpdb;
+    $thread = substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $req->get_param('thread')), 0, 60);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    $until = $req->get_param('typing') ? bwp_up_now() + 6 : 0;
+    $wpdb->query($wpdb->prepare(
+        'INSERT INTO ' . bwp_ur_table() . ' (thread, member_key, delivered, seen, typing_until) VALUES (%s, %s, 0, 0, %d)
+         ON DUPLICATE KEY UPDATE typing_until = VALUES(typing_until)', $thread, $who[0], $until
+    ));
+    return bwp_up_json([]);
+}
+
+/** Validates a base64 AAC/M4A recording and stores it. */
+function bwp_up_store_audio($b64, $prefix) {
+    if ($b64 === '' || strlen($b64) > 2600000) return bwp_up_err('Voice message missing or too long');
+    $bytes = base64_decode($b64, true);
+    if ($bytes === false || strlen($bytes) < 64) return bwp_up_err('Invalid audio data');
+    $isMp4 = substr($bytes, 4, 4) === 'ftyp';
+    $isAdts = (ord($bytes[0]) === 0xFF) && ((ord($bytes[1]) & 0xF6) === 0xF0);
+    if (!$isMp4 && !$isAdts) return bwp_up_err('Only AAC / M4A voice messages are accepted');
+    $up = wp_upload_bits($prefix . '-' . bwp_up_now() . '-' . wp_generate_password(6, false, false) . ($isMp4 ? '.m4a' : '.aac'), null, $bytes);
+    if (!empty($up['error'])) return bwp_up_err('Upload failed: ' . $up['error'], 500);
+    return strpos(home_url(), 'https://') === 0 ? set_url_scheme($up['url'], 'https') : $up['url'];
+}
+
+// ---------------------------------------------------------------- groups
+
+function bwp_ug_is_member($gid, $uid) {
+    global $wpdb;
+    return (bool) $wpdb->get_var($wpdb->prepare('SELECT 1 FROM ' . bwp_ugm_table() . ' WHERE group_id = %d AND user_id = %d', $gid, $uid));
+}
+
+function bwp_ug_ids_for($uid) {
+    global $wpdb;
+    return array_map('intval', $wpdb->get_col($wpdb->prepare('SELECT group_id FROM ' . bwp_ugm_table() . ' WHERE user_id = %d', $uid)));
+}
+
+function bwp_ug_are_friends($a, $b) {
+    global $wpdb;
+    return (bool) $wpdb->get_var($wpdb->prepare(
+        "SELECT 1 FROM " . bwp_uf_table() . " WHERE a_id = %d AND b_id = %d AND status = 'accepted'", min($a, $b), max($a, $b)
+    ));
+}
+
+function bwp_ug_system_msg($gid, $text) {
+    global $wpdb;
+    $wpdb->insert(bwp_uc_table(), [
+        'thread' => 'grp:' . (int) $gid, 'sender_key' => 'sys', 'sender_name' => '',
+        'type' => 'system', 'body' => wp_json_encode(['text' => $text]), 'created' => bwp_up_now(),
+    ]);
+}
+
+function bwp_ug_payload($g) {
+    global $wpdb;
+    $rows = $wpdb->get_results($wpdb->prepare(
+        'SELECT u.id, u.name, u.username, u.avatar FROM ' . bwp_ugm_table() . ' m JOIN ' . bwp_ua_table() . ' u ON u.id = m.user_id WHERE m.group_id = %d ORDER BY m.joined',
+        (int) $g['id']
+    ), ARRAY_A);
+    return [
+        'id' => (int) $g['id'], 'name' => $g['name'], 'owner' => (int) $g['owner_id'],
+        'thread' => 'grp:' . (int) $g['id'], 'members' => array_map('bwp_ua_public', $rows),
+    ];
+}
+
+function bwp_ug_create(WP_REST_Request $req) {
+    global $wpdb;
+    if (bwp_up_rate_limited('grp_create', 30, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $name = mb_substr(sanitize_text_field((string) $req->get_param('name')), 0, 60);
+    if ($name === '') return bwp_up_err('Give the group a name');
+    $ids = array_unique(array_map('intval', (array) $req->get_param('members')));
+    $wpdb->insert(bwp_ug_table(), ['name' => $name, 'owner_id' => $me['id'], 'created' => bwp_up_now()]);
+    $gid = (int) $wpdb->insert_id;
+    if (!$gid) return bwp_up_err('Could not create the group', 500);
+    $wpdb->insert(bwp_ugm_table(), ['group_id' => $gid, 'user_id' => $me['id'], 'joined' => bwp_up_now()]);
+    foreach (array_slice($ids, 0, 50) as $uid) {
+        if ($uid && $uid !== (int) $me['id'] && bwp_ug_are_friends((int) $me['id'], $uid)) {
+            $wpdb->insert(bwp_ugm_table(), ['group_id' => $gid, 'user_id' => $uid, 'joined' => bwp_up_now()]);
+        }
+    }
+    bwp_ug_system_msg($gid, $me['name'] . ' created the group "' . $name . '"');
+    $g = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_ug_table() . ' WHERE id = %d', $gid), ARRAY_A);
+    return bwp_up_json(['group' => bwp_ug_payload($g)]);
+}
+
+function bwp_ug_list(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $out = [];
+    foreach (bwp_ug_ids_for((int) $me['id']) as $gid) {
+        $g = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_ug_table() . ' WHERE id = %d', $gid), ARRAY_A);
+        if ($g) $out[] = bwp_ug_payload($g);
+    }
+    return bwp_up_json(['groups' => $out]);
+}
+
+function bwp_ug_add(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $gid = (int) $req->get_param('group_id');
+    if (!bwp_ug_is_member($gid, (int) $me['id'])) return bwp_up_err('You are not in this group', 403);
+    $added = [];
+    foreach (array_unique(array_map('intval', (array) $req->get_param('members'))) as $uid) {
+        if (!$uid || bwp_ug_is_member($gid, $uid) || !bwp_ug_are_friends((int) $me['id'], $uid)) continue;
+        $wpdb->insert(bwp_ugm_table(), ['group_id' => $gid, 'user_id' => $uid, 'joined' => bwp_up_now()]);
+        $n = $wpdb->get_var($wpdb->prepare('SELECT name FROM ' . bwp_ua_table() . ' WHERE id = %d', $uid));
+        if ($n !== null) $added[] = $n;
+    }
+    if ($added) bwp_ug_system_msg($gid, $me['name'] . ' added ' . implode(', ', $added));
+    $g = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_ug_table() . ' WHERE id = %d', $gid), ARRAY_A);
+    return bwp_up_json(['group' => bwp_ug_payload($g)]);
+}
+
+function bwp_ug_leave(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $gid = (int) $req->get_param('group_id');
+    $wpdb->delete(bwp_ugm_table(), ['group_id' => $gid, 'user_id' => $me['id']]);
+    $left = (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . bwp_ugm_table() . ' WHERE group_id = %d', $gid));
+    if ($left === 0) {
+        $wpdb->delete(bwp_ug_table(), ['id' => $gid]);
+        $wpdb->delete(bwp_uc_table(), ['thread' => 'grp:' . $gid]);
+        delete_option('bwp_um_meet_' . md5('grp:' . $gid));
+    } else {
+        bwp_ug_system_msg($gid, $me['name'] . ' left the group');
+    }
+    return bwp_up_json([]);
+}
+
+// ---------------------------------------------------------------- live location for accounts (groups map)
+
+function bwp_uloc_update(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $share = (bool) $req->get_param('share');
+    $upd = ['loc_share' => $share ? 1 : 0];
+    $lat = $req->get_param('lat'); $lng = $req->get_param('lng');
+    if ($share && is_numeric($lat) && is_numeric($lng) && abs((float) $lat) <= 90 && abs((float) $lng) <= 180) {
+        $upd += ['loc_lat' => (float) $lat, 'loc_lng' => (float) $lng,
+                 'loc_acc' => is_numeric($req->get_param('acc')) ? (float) $req->get_param('acc') : null, 'loc_at' => bwp_up_now()];
+    }
+    if (!$share) $upd += ['loc_lat' => null, 'loc_lng' => null, 'loc_acc' => null];
+    $wpdb->update(bwp_ua_table(), $upd, ['id' => $me['id']]);
+    return bwp_up_json([]);
+}
+
+function bwp_ug_locations(WP_REST_Request $req) {
+    global $wpdb;
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$me) return bwp_up_err('Session expired — please sign in again', 401);
+    $gid = (int) $req->get_param('group_id');
+    if (!bwp_ug_is_member($gid, (int) $me['id'])) return bwp_up_err('You are not in this group', 403);
+    $rows = $wpdb->get_results($wpdb->prepare(
+        'SELECT u.id, u.name, u.username, u.avatar, u.loc_lat, u.loc_lng, u.loc_acc, u.loc_at, u.loc_share FROM ' . bwp_ugm_table() .
+        ' m JOIN ' . bwp_ua_table() . ' u ON u.id = m.user_id WHERE m.group_id = %d', $gid
+    ), ARRAY_A);
+    $out = [];
+    foreach ($rows as $r) {
+        $has = $r['loc_share'] && $r['loc_lat'] !== null;
+        $out[] = bwp_ua_public($r) + [
+            'me' => (int) $r['id'] === (int) $me['id'],
+            'sharing' => (bool) $r['loc_share'],
+            'lat' => $has ? (float) $r['loc_lat'] : null, 'lng' => $has ? (float) $r['loc_lng'] : null,
+            'acc' => $has && $r['loc_acc'] !== null ? (float) $r['loc_acc'] : null,
+            'loc_at' => (int) $r['loc_at'],
+        ];
+    }
+    return bwp_up_json(['members' => $out, 'meet' => bwp_umeet_load('grp:' . $gid), 'now' => bwp_up_now()]);
+}
+
+// ---------------------------------------------------------------- meeting point (per chat / pairing)
+
+function bwp_umeet_load($thread) {
+    $m = get_option('bwp_um_meet_' . md5($thread));
+    return is_array($m) ? $m : null;
+}
+
+function bwp_umeet_set(WP_REST_Request $req) {
+    global $wpdb;
+    $thread = substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $req->get_param('thread')), 0, 60);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    if ($req->get_param('clear')) {
+        delete_option('bwp_um_meet_' . md5($thread));
+        return bwp_up_json(['meet' => null]);
+    }
+    $lat = $req->get_param('lat'); $lng = $req->get_param('lng');
+    if (!is_numeric($lat) || !is_numeric($lng)) return bwp_up_err('Pick a spot on the map');
+    $meet = [
+        'lat' => (float) $lat, 'lng' => (float) $lng,
+        'label' => mb_substr(sanitize_text_field((string) $req->get_param('label')), 0, 80),
+        'by' => $who[1], 'ts' => bwp_up_now(),
+    ];
+    update_option('bwp_um_meet_' . md5($thread), $meet, false);
+    $body = wp_json_encode($meet);
+    $wpdb->insert(bwp_uc_table(), [
+        'thread' => $thread, 'sender_key' => $who[0], 'sender_name' => $who[1],
+        'type' => 'meet', 'body' => $body, 'created' => bwp_up_now(),
+    ]);
+    bwp_upush_message($thread, $who, 'meet', $body);
+    return bwp_up_json(['meet' => $meet]);
+}
+
+function bwp_umeet_get(WP_REST_Request $req) {
+    $thread = substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $req->get_param('thread')), 0, 60);
+    $who = bwp_uc_auth($req, $thread);
+    if ($who instanceof WP_REST_Response) return $who;
+    return bwp_up_json(['meet' => bwp_umeet_load($thread)]);
+}
+
+// ---------------------------------------------------------------- SOS
+
+function bwp_usos_send(WP_REST_Request $req) {
+    global $wpdb;
+    if (bwp_up_rate_limited('sos', 30, HOUR_IN_SECONDS)) return bwp_up_err('Too many SOS alerts, please call directly', 429);
+    $threads = array_slice(array_unique(array_map(function ($t) {
+        return substr(preg_replace('/[^A-Za-z0-9:_-]/', '', (string) $t), 0, 60);
+    }, (array) $req->get_param('threads'))), 0, 30);
+    if (!$threads) return bwp_up_err('No one to alert — pair with your partner or create a family group first');
+    $audio = null;
+    $b64 = (string) $req->get_param('audio');
+    if ($b64 !== '') {
+        $a = bwp_up_store_audio($b64, 'umrah-chat/sos');
+        if (!($a instanceof WP_REST_Response)) $audio = $a;
+    }
+    $lat = $req->get_param('lat'); $lng = $req->get_param('lng');
+    $body = wp_json_encode([
+        'lat' => is_numeric($lat) ? (float) $lat : null, 'lng' => is_numeric($lng) ? (float) $lng : null,
+        'acc' => is_numeric($req->get_param('acc')) ? (float) $req->get_param('acc') : null,
+        'audio' => $audio, 'note' => mb_substr(sanitize_text_field((string) $req->get_param('note')), 0, 200),
+    ]);
+    $sent = 0;
+    foreach ($threads as $th) {
+        $who = bwp_uc_auth($req, $th);
+        if ($who instanceof WP_REST_Response) continue;
+        $wpdb->insert(bwp_uc_table(), [
+            'thread' => $th, 'sender_key' => $who[0], 'sender_name' => $who[1],
+            'type' => 'sos', 'body' => $body, 'created' => bwp_up_now(),
+        ]);
+        bwp_upush_message($th, $who, 'sos', $body);
+        $sent++;
+    }
+    if (!$sent) return bwp_up_err('Could not send the alert — please sign in again', 403);
+    return bwp_up_json(['sent' => $sent, 'audio' => $audio]);
+}
+
+// ---------------------------------------------------------------- push notifications (Firebase Cloud Messaging v1)
+
+function bwp_upush_register(WP_REST_Request $req) {
+    global $wpdb;
+    $fcm = substr(preg_replace('/[^A-Za-z0-9:_\-.]/', '', (string) $req->get_param('fcm')), 0, 250);
+    if (strlen($fcm) < 20) return bwp_up_err('Invalid push token');
+    $platform = $req->get_param('platform') === 'ios' ? 'ios' : 'android';
+    $keys = [];
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if ($me) $keys[] = 'u:' . (int) $me['id'];
+    $code = strtoupper(sanitize_text_field((string) $req->get_param('pair_code')));
+    if ($code !== '') {
+        $tkn = bwp_up_auth(bwp_up_load($code), (string) $req->get_param('ptoken'));
+        if ($tkn) $keys[] = 'p:' . substr(hash('sha256', $tkn), 0, 16);
+    }
+    // One phone = one push token; re-link it to whoever is signed in now.
+    // (UNIQUE fcm: the pairing link is stored with a "#p" suffix.)
+    $wpdb->query($wpdb->prepare('DELETE FROM ' . bwp_upush_table() . ' WHERE fcm IN (%s, %s)', $fcm, $fcm . '#p'));
+    foreach ($keys as $k) {
+        $wpdb->insert(bwp_upush_table(), [
+            'member_key' => $k, 'fcm' => $k[0] === 'p' ? $fcm . '#p' : $fcm,
+            'platform' => $platform, 'updated' => bwp_up_now(),
+        ]);
+    }
+    return bwp_up_json(['linked' => count($keys)]);
+}
+
+function bwp_upush_b64url($s) { return rtrim(strtr(base64_encode($s), '+/', '-_'), '='); }
+
+function bwp_upush_access_token() {
+    $cached = get_transient('bwp_upush_oauth');
+    if ($cached) return $cached;
+    $s = bwp_up_settings();
+    $sa = json_decode((string) $s['fcm_service_json'], true);
+    if (!is_array($sa) || empty($sa['private_key']) || empty($sa['client_email']) || !function_exists('openssl_sign')) return null;
+    $now = time();
+    $head = bwp_upush_b64url(wp_json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
+    $claim = bwp_upush_b64url(wp_json_encode([
+        'iss' => $sa['client_email'], 'scope' => 'https://www.googleapis.com/auth/firebase.messaging',
+        'aud' => 'https://oauth2.googleapis.com/token', 'iat' => $now, 'exp' => $now + 3600,
+    ]));
+    $sig = '';
+    if (!openssl_sign($head . '.' . $claim, $sig, $sa['private_key'], 'sha256WithRSAEncryption')) return null;
+    $r = wp_remote_post('https://oauth2.googleapis.com/token', ['timeout' => 10, 'body' => [
+        'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        'assertion' => $head . '.' . $claim . '.' . bwp_upush_b64url($sig),
+    ]]);
+    if (is_wp_error($r)) return null;
+    $j = json_decode(wp_remote_retrieve_body($r), true);
+    if (empty($j['access_token'])) return null;
+    set_transient('bwp_upush_oauth', $j['access_token'], 50 * MINUTE_IN_SECONDS);
+    return $j['access_token'];
+}
+
+/**
+ * Sends to every phone registered for the given member keys.
+ * $urgent → high priority (calls/SOS); calls are data-only on Android so the
+ * app can ring with its own full-screen notification.
+ */
+function bwp_upush_send($keys, $data, $title, $body, $urgent = false) {
+    global $wpdb;
+    if (!$keys) return;
+    $s = bwp_up_settings();
+    if ($s['fcm_project_id'] === '' || $s['fcm_service_json'] === '') return;
+    $in = implode(',', array_fill(0, count($keys), '%s'));
+    $rows = $wpdb->get_results($wpdb->prepare('SELECT * FROM ' . bwp_upush_table() . " WHERE member_key IN ($in)", $keys), ARRAY_A);
+    if (!$rows) return;
+    $at = bwp_upush_access_token();
+    if (!$at) return;
+    $data = array_map('strval', $data + ['title' => $title, 'body' => $body]);
+    $isCall = ($data['type'] ?? '') === 'call';
+    foreach ($rows as $row) {
+        $token = preg_replace('/#p$/', '', $row['fcm']);
+        $msg = ['token' => $token, 'data' => $data];
+        if ($row['platform'] === 'ios') {
+            $msg['apns'] = [
+                'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
+                'payload' => ['aps' => ['alert' => ['title' => $title, 'body' => $body], 'sound' => 'default',
+                    'interruption-level' => $urgent ? 'time-sensitive' : 'active']],
+            ];
+        } else {
+            $msg['android'] = ['priority' => $urgent ? 'HIGH' : 'NORMAL', 'ttl' => $isCall ? '45s' : '86400s'];
+            if (!$isCall) {
+                $msg['android']['notification'] = ['title' => $title, 'body' => $body, 'sound' => 'default',
+                    'channel_id' => $urgent ? 'umrah_trip_sos' : 'umrah_trip', 'tag' => $data['thread'] ?? 'umrah'];
+            }
+        }
+        $r = wp_remote_post('https://fcm.googleapis.com/v1/projects/' . rawurlencode($s['fcm_project_id']) . '/messages:send', [
+            'timeout' => $urgent ? 6 : 4,
+            'headers' => ['Authorization' => 'Bearer ' . $at, 'Content-Type' => 'application/json'],
+            'body' => wp_json_encode(['message' => $msg]),
+        ]);
+        if (!is_wp_error($r) && in_array((int) wp_remote_retrieve_response_code($r), [404, 400], true)
+            && strpos(wp_remote_retrieve_body($r), 'UNREGISTERED') !== false) {
+            $wpdb->delete(bwp_upush_table(), ['id' => $row['id']]); // app uninstalled
+        }
+    }
+}
+
+/** Push for a new chat message / meeting point / SOS. */
+function bwp_upush_message($thread, $who, $type, $body) {
+    $others = bwp_thread_others($thread, $who[0]);
+    if (!$others) return;
+    $title = $who[1];
+    if (strpos($thread, 'grp:') === 0) {
+        global $wpdb;
+        $gname = $wpdb->get_var($wpdb->prepare('SELECT name FROM ' . bwp_ug_table() . ' WHERE id = %d', (int) substr($thread, 4)));
+        if ($gname) $title = $who[1] . ' · ' . $gname;
+    }
+    $preview = [
+        'text' => mb_substr((string) $body, 0, 140), 'image' => '📷 Photo', 'location' => '📍 Location',
+        'voice' => '🎤 Voice message', 'meet' => '📌 New meeting point', 'call' => '📞 Call',
+    ][$type] ?? 'New message';
+    $urgent = $type === 'sos';
+    if ($urgent) {
+        $title = '🚨 SOS — ' . $who[1] . ' needs help';
+        $preview = 'Tap to see their location';
+    }
+    bwp_upush_send($others, ['type' => $type, 'thread' => $thread, 'sender' => $who[1]], $title, $preview, $urgent);
+}

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -12,6 +14,9 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme.dart';
 import '../services/pair_state.dart';
+import '../services/social_service.dart';
+import 'chat_widgets.dart';
+import 'groups_screen.dart' show askMeetLabel;
 import 'chat_screen.dart';
 import 'experiences_screen.dart';
 
@@ -750,6 +755,43 @@ class _LiveMapCard extends StatefulWidget {
 class _LiveMapCardState extends State<_LiveMapCard> {
   final MapController _controller = MapController();
   bool _didAutoFit = false;
+  MeetPoint? _meet;
+  Timer? _meetTimer;
+  bool _picking = false;
+
+  String get _thread => 'pair:${widget.pair.code}';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMeet();
+    _meetTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadMeet());
+  }
+
+  @override
+  void dispose() {
+    _meetTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadMeet() async {
+    if (!widget.pair.paired) return;
+    final m = await context.read<SocialService>().getMeet(_thread);
+    if (mounted) setState(() => _meet = m);
+  }
+
+  Future<void> _setMeetAt(LatLng p) async {
+    setState(() => _picking = false);
+    final label = await askMeetLabel(context);
+    if (label == null || !mounted) return;
+    final r = await context.read<SocialService>().setMeet(_thread, p.latitude, p.longitude, label);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(r.ok
+            ? 'Meeting point sent to ${widget.pair.partner?.name ?? 'your partner'}'
+            : (r.error ?? 'Failed (is plugin v1.7 installed?)'))));
+    _loadMeet();
+  }
 
   LatLng? get _me {
     final p = widget.pair.app.position;
@@ -814,7 +856,9 @@ class _LiveMapCardState extends State<_LiveMapCard> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _fit());
     }
 
-    return Padding(
+    final meet = _meet;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+    Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
@@ -828,6 +872,10 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                   initialCenter: center,
                   initialZoom: 14,
                   maxZoom: 18.5,
+                  onTap: (_, p) {
+                    if (_picking) _setMeetAt(p);
+                  },
+                  onLongPress: (_, p) => _setMeetAt(p),
                   interactionOptions: const InteractionOptions(
                       flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
                 ),
@@ -857,6 +905,20 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                           borderStrokeWidth: 1),
                   ]),
                   MarkerLayer(markers: [
+                    if (_meet != null)
+                      Marker(
+                        point: LatLng(_meet!.lat, _meet!.lng),
+                        width: 110,
+                        height: 52,
+                        child: Column(children: [
+                          const Icon(Icons.push_pin_rounded, color: Colors.deepOrange, size: 30),
+                          Text(_meet!.label.isEmpty ? 'Meet here' : _meet!.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontSize: 9, fontWeight: FontWeight.w900, color: Colors.deepOrange)),
+                        ]),
+                      ),
                     if (me != null)
                       Marker(
                         point: me,
@@ -937,6 +999,19 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                         () => _controller.move(partner, 17)),
                 ]),
               ),
+              if (_picking)
+                Positioned(
+                  left: 8,
+                  right: 56,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                        color: AppColors.emerald, borderRadius: BorderRadius.circular(10)),
+                    child: const Text('Tap the map where you want to meet',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 12)),
+                  ),
+                ),
               if (me == null && partner == null)
                 Container(
                   color: Colors.black.withValues(alpha: 0.35),
@@ -952,7 +1027,63 @@ class _LiveMapCardState extends State<_LiveMapCard> {
           ),
         ),
       ),
-    );
+    ),
+    Padding(
+      padding: const EdgeInsets.fromLTRB(12, 2, 12, 0),
+      child: meet == null
+          ? Row(children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => setState(() => _picking = !_picking),
+                  icon: const Icon(Icons.add_location_alt_rounded, size: 18),
+                  label: Text(_picking ? 'Cancel' : 'Set meeting point'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: me == null ? null : () => _setMeetAt(me),
+                  icon: const Icon(Icons.my_location_rounded, size: 18),
+                  label: const Text('Meet where I am'),
+                ),
+              ),
+            ])
+          : Card(
+              margin: EdgeInsets.zero,
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.push_pin_rounded, color: Colors.deepOrange),
+                title: Text(meet.label.isEmpty ? 'Meeting point' : meet.label,
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text('Set by ${meet.by}'
+                    '${me != null ? ' · ${fmtDistance(const Distance().as(LengthUnit.Meter, me, LatLng(meet.lat, meet.lng)))} from you' : ''}'),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  IconButton(
+                    tooltip: 'Change',
+                    icon: const Icon(Icons.edit_location_alt_rounded),
+                    onPressed: () => setState(() {
+                      _meet = null;
+                      _picking = true;
+                    }),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove',
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: () async {
+                      await context.read<SocialService>().clearMeet(_thread);
+                      _loadMeet();
+                    },
+                  ),
+                  IconButton.filled(
+                    tooltip: 'Walk there',
+                    icon: const Icon(Icons.directions_walk_rounded),
+                    onPressed: () => openWalkingRoute(meet.lat, meet.lng),
+                  ),
+                ]),
+              ),
+            ),
+    ),
+    ]);
   }
 
   Widget _mapBtn(IconData icon, String tip, VoidCallback onTap) => Material(

@@ -61,6 +61,85 @@ class IncomingCall {
   const IncomingCall(this.thread, this.callId, this.callerName, this.video, [this.avatar]);
 }
 
+class PollResult {
+  final List<ChatMessage> messages;
+  final int peerDelivered; // highest message id the other side has received
+  final int peerSeen; // highest message id the other side has seen
+  final List<String> typing; // names typing right now
+  final MeetPoint? meet;
+  const PollResult(this.messages, this.peerDelivered, this.peerSeen, this.typing, this.meet);
+}
+
+class MeetPoint {
+  final double lat;
+  final double lng;
+  final String label;
+  final String by;
+  final DateTime at;
+  const MeetPoint(this.lat, this.lng, this.label, this.by, this.at);
+  static MeetPoint? fromJson(dynamic j) {
+    if (j is! Map) return null;
+    final lat = double.tryParse('${j['lat']}');
+    final lng = double.tryParse('${j['lng']}');
+    if (lat == null || lng == null) return null;
+    return MeetPoint(lat, lng, '${j['label'] ?? ''}', '${j['by'] ?? ''}',
+        DateTime.fromMillisecondsSinceEpoch((int.tryParse('${j['ts']}') ?? 0) * 1000));
+  }
+}
+
+class GroupMember {
+  final int id;
+  final String name;
+  final String? username;
+  final String? avatar;
+  const GroupMember(this.id, this.name, this.username, this.avatar);
+  factory GroupMember.fromJson(Map j) => GroupMember(
+      int.tryParse('${j['id']}') ?? 0,
+      '${j['name'] ?? ''}',
+      j['username']?.toString(),
+      (j['avatar'] ?? '').toString().isEmpty ? null : j['avatar'].toString());
+}
+
+class ChatGroup {
+  final int id;
+  final String name;
+  final int owner;
+  final String thread;
+  final List<GroupMember> members;
+  const ChatGroup(this.id, this.name, this.owner, this.thread, this.members);
+  factory ChatGroup.fromJson(Map j) => ChatGroup(
+        int.tryParse('${j['id']}') ?? 0,
+        '${j['name'] ?? ''}',
+        int.tryParse('${j['owner']}') ?? 0,
+        '${j['thread']}',
+        (j['members'] is List ? j['members'] as List : const [])
+            .whereType<Map>()
+            .map(GroupMember.fromJson)
+            .toList(),
+      );
+}
+
+class MemberLocation {
+  final GroupMember user;
+  final bool me;
+  final bool sharing;
+  final double? lat;
+  final double? lng;
+  final double? acc;
+  final DateTime? at;
+  const MemberLocation(this.user, this.me, this.sharing, this.lat, this.lng, this.acc, this.at);
+}
+
+class SosAlert {
+  final String thread;
+  final String from;
+  final double? lat;
+  final double? lng;
+  final String? audio;
+  final DateTime at;
+  const SosAlert(this.thread, this.from, this.lat, this.lng, this.audio, this.at);
+}
+
 class SocialResult {
   final bool ok;
   final Map<String, dynamic> data;
@@ -77,6 +156,12 @@ class SocialService extends ChangeNotifier {
   SocialService(this.account, this.pair);
 
   List<Friend> friends = [];
+  List<ChatGroup> groups = [];
+  /// Share my live location with my groups (account users).
+  bool shareGroupLocation = false;
+  DateTime _lastLocPush = DateTime.fromMillisecondsSinceEpoch(0);
+  /// Fires when an SOS alert arrives from the partner / a group / a friend.
+  final StreamController<SosAlert> sosAlerts = StreamController.broadcast();
   int pendingRequests = 0;
   final Map<String, int> _latestId = {}; // thread → latest message id on server
   final Map<String, int> _seenId = {}; // thread → last id the user has seen
@@ -114,6 +199,7 @@ class SocialService extends ChangeNotifier {
         (jsonDecode(raw) as Map).forEach((k, v) => _seenId['$k'] = int.tryParse('$v') ?? 0);
       } catch (_) {}
     }
+    shareGroupLocation = p.getBool('share_group_loc') ?? false;
     account.addListener(_onAccountChanged);
     pair.addListener(_onAccountChanged);
     _loadCallServer();
@@ -126,6 +212,7 @@ class SocialService extends ChangeNotifier {
     account.removeListener(_onAccountChanged);
     pair.removeListener(_onAccountChanged);
     incomingCalls.close();
+    sosAlerts.close();
     super.dispose();
   }
 
@@ -133,16 +220,21 @@ class SocialService extends ChangeNotifier {
     final active = account.loggedIn || pair.paired;
     if (active) {
       if (_timer == null) {
-        _timer = Timer.periodic(const Duration(seconds: 4), (_) => refreshInbox());
+        _timer = Timer.periodic(const Duration(seconds: 4), (_) {
+          refreshInbox();
+          _maybePushLocation();
+        });
         refreshFriends();
+        refreshGroups();
         refreshInbox();
       }
     } else {
       _timer?.cancel();
       _timer = null;
     }
-    if (!account.loggedIn && friends.isNotEmpty) {
+    if (!account.loggedIn && (friends.isNotEmpty || groups.isNotEmpty)) {
       friends = [];
+      groups = [];
       pendingRequests = 0;
       notifyListeners();
     }
@@ -171,7 +263,7 @@ class SocialService extends ChangeNotifier {
       try {
         j = jsonDecode(r.body) as Map<String, dynamic>;
       } catch (_) {
-        return SocialResult(false, {}, 'Server HTTP ${r.statusCode} (is plugin v1.6 installed?)');
+        return SocialResult(false, {}, 'Server HTTP ${r.statusCode} (is plugin v1.7 installed?)');
       }
       if (r.statusCode == 200 && j['ok'] == true) return SocialResult(true, j);
       return SocialResult(false, j, '${j['error'] ?? j['message'] ?? 'HTTP ${r.statusCode}'}');
@@ -230,13 +322,176 @@ class SocialService extends ChangeNotifier {
       ? {'ptoken': pair.token}
       : {'token': account.token};
 
-  Future<List<ChatMessage>?> poll(String thread, int afterId) async {
-    final r = await _post('chat/poll', {'thread': thread, 'after': afterId, ..._auth(thread)});
+  Future<PollResult?> poll(String thread, int afterId, {int seen = 0}) async {
+    final r = await _post(
+        'chat/poll', {'thread': thread, 'after': afterId, 'seen': seen, ..._auth(thread)});
     if (!r.ok) return null;
     final list = r.data['messages'];
-    return list is List
+    final msgs = list is List
         ? list.whereType<Map>().map((m) => ChatMessage.fromJson(Map<String, dynamic>.from(m))).toList()
         : <ChatMessage>[];
+    final ty = r.data['typing'];
+    return PollResult(
+      msgs,
+      int.tryParse('${r.data['peer_delivered'] ?? 0}') ?? 0,
+      int.tryParse('${r.data['peer_seen'] ?? 0}') ?? 0,
+      ty is List ? ty.map((e) => '$e').toList() : const [],
+      MeetPoint.fromJson(r.data['meet']),
+    );
+  }
+
+  DateTime _lastTyping = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Tell the other side I'm typing (throttled to one call per 3 s).
+  void typing(String thread) {
+    final now = DateTime.now();
+    if (now.difference(_lastTyping) < const Duration(seconds: 3)) return;
+    _lastTyping = now;
+    _post('chat/typing', {'thread': thread, 'typing': true, ..._auth(thread)},
+        timeout: const Duration(seconds: 8));
+  }
+
+  Future<SocialResult> sendVoice(String thread, Uint8List audio, int seconds) => _post(
+      'chat/send',
+      {'thread': thread, 'type': 'voice', 'audio': base64Encode(audio), 'duration': seconds, ..._auth(thread)},
+      timeout: const Duration(seconds: 60));
+
+  // ---------------- groups ----------------
+
+  Future<void> refreshGroups() async {
+    if (!account.loggedIn) return;
+    final r = await _post('groups/list', {'token': account.token});
+    if (!r.ok) return;
+    final l = r.data['groups'];
+    groups = l is List ? l.whereType<Map>().map(ChatGroup.fromJson).toList() : [];
+    notifyListeners();
+  }
+
+  Future<SocialResult> createGroup(String name, List<int> memberIds) async {
+    final r = await _post('groups/create', {'token': account.token, 'name': name, 'members': memberIds});
+    if (r.ok) await refreshGroups();
+    return r;
+  }
+
+  Future<SocialResult> addToGroup(int groupId, List<int> memberIds) async {
+    final r = await _post('groups/add', {'token': account.token, 'group_id': groupId, 'members': memberIds});
+    if (r.ok) await refreshGroups();
+    return r;
+  }
+
+  Future<SocialResult> leaveGroup(int groupId) async {
+    final r = await _post('groups/leave', {'token': account.token, 'group_id': groupId});
+    if (r.ok) await refreshGroups();
+    return r;
+  }
+
+  ChatGroup? groupFor(String thread) {
+    for (final g in groups) {
+      if (g.thread == thread) return g;
+    }
+    return null;
+  }
+
+  /// Members' live locations + the group's meeting point.
+  Future<(List<MemberLocation>, MeetPoint?)?> groupLocations(int groupId) async {
+    final r = await _post('groups/locations', {'token': account.token, 'group_id': groupId},
+        timeout: const Duration(seconds: 12));
+    if (!r.ok) return null;
+    final l = r.data['members'];
+    final list = l is List
+        ? l.whereType<Map>().map((m) {
+            final at = int.tryParse('${m['loc_at']}') ?? 0;
+            return MemberLocation(
+              GroupMember.fromJson(m),
+              m['me'] == true,
+              m['sharing'] == true,
+              double.tryParse('${m['lat']}'),
+              double.tryParse('${m['lng']}'),
+              double.tryParse('${m['acc']}'),
+              at > 0 ? DateTime.fromMillisecondsSinceEpoch(at * 1000) : null,
+            );
+          }).toList()
+        : <MemberLocation>[];
+    return (list, MeetPoint.fromJson(r.data['meet']));
+  }
+
+  Future<void> setShareGroupLocation(bool v) async {
+    shareGroupLocation = v;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('share_group_loc', v);
+    _lastLocPush = DateTime.fromMillisecondsSinceEpoch(0);
+    if (v) {
+      await pair.app.refreshLocation();
+      await pushLocationNow();
+    } else if (account.loggedIn) {
+      await _post('loc/update', {'token': account.token, 'share': false});
+    }
+  }
+
+  Future<void> pushLocationNow() async {
+    if (!account.loggedIn || !shareGroupLocation) return;
+    _lastLocPush = DateTime.now();
+    final pos = pair.app.position;
+    await _post('loc/update', {
+      'token': account.token,
+      'share': true,
+      if (pos != null) 'lat': pos.latitude,
+      if (pos != null) 'lng': pos.longitude,
+      if (pos != null) 'acc': pos.accuracy,
+    });
+  }
+
+  void _maybePushLocation() {
+    if (!shareGroupLocation || !account.loggedIn || groups.isEmpty) return;
+    if (DateTime.now().difference(_lastLocPush) < const Duration(seconds: 20)) return;
+    _lastLocPush = DateTime.now();
+    pair.app.refreshLocation(request: false).then((_) => pushLocationNow()).catchError((_) {});
+  }
+
+  // ---------------- meeting point ----------------
+
+  Future<SocialResult> setMeet(String thread, double lat, double lng, String label) =>
+      _post('meet/set', {'thread': thread, 'lat': lat, 'lng': lng, 'label': label, ..._auth(thread)});
+
+  Future<SocialResult> clearMeet(String thread) =>
+      _post('meet/set', {'thread': thread, 'clear': true, ..._auth(thread)});
+
+  Future<MeetPoint?> getMeet(String thread) async {
+    final r = await _post('meet/get', {'thread': thread, ..._auth(thread)},
+        timeout: const Duration(seconds: 10));
+    return r.ok ? MeetPoint.fromJson(r.data['meet']) : null;
+  }
+
+  // ---------------- SOS ----------------
+
+  /// Everyone an SOS goes to: the paired partner and all my groups;
+  /// with no partner/groups (or [includeFriends]) also every friend.
+  List<String> sosThreads({bool includeFriends = false}) {
+    final out = <String>[
+      if (pair.paired) 'pair:${pair.code}',
+      if (account.loggedIn) ...groups.map((g) => g.thread),
+    ];
+    if (includeFriends || out.isEmpty) {
+      out.addAll(friends.where((f) => f.accepted).map((f) => f.thread));
+    }
+    return out.toSet().toList();
+  }
+
+  Future<SocialResult> sendSos(List<String> threads,
+      {double? lat, double? lng, double? acc, Uint8List? audio}) {
+    return _post(
+        'sos/send',
+        {
+          'threads': threads,
+          if (account.loggedIn) 'token': account.token,
+          if (pair.paired) 'ptoken': pair.token,
+          if (lat != null) 'lat': lat,
+          if (lng != null) 'lng': lng,
+          if (acc != null) 'acc': acc,
+          if (audio != null) 'audio': base64Encode(audio),
+        },
+        timeout: const Duration(seconds: 60));
   }
 
   Future<SocialResult> sendText(String thread, String text) =>
@@ -305,7 +560,9 @@ class SocialService extends ChangeNotifier {
   }
 
   int get totalUnread =>
-      friends.where((f) => f.accepted).fold(0, (s, f) => s + unreadFor(f.thread));
+      friends.where((f) => f.accepted).fold(0, (s, f) => s + unreadFor(f.thread)) +
+      groups.fold(0, (s, g) => s + unreadFor(g.thread)) +
+      (pair.paired ? unreadFor('pair:${pair.code}') : 0);
 
   Future<void> markSeen(String thread, int id) async {
     if ((_seenId[thread] ?? 0) >= id) return;
@@ -350,6 +607,16 @@ class SocialService extends ChangeNotifier {
         final before = _latestId['$thread'] ?? 0;
         _latestId['$thread'] = m.id;
         final isNew = m.id > before && (before != 0 || m.type == 'call');
+        if (isNew && !m.mine && m.type == 'sos') {
+          final b = m.body is Map ? Map<String, dynamic>.from(m.body as Map) : <String, dynamic>{};
+          if (DateTime.now().difference(m.at).abs() < const Duration(minutes: 30)) {
+            sosAlerts.add(SosAlert('$thread', m.name, double.tryParse('${b['lat']}'),
+                double.tryParse('${b['lng']}'), b['audio']?.toString(), m.at));
+            NotificationsService.instance.showSos('🚨 SOS — ${m.name} needs help', 'Tap to see their location');
+          }
+          return;
+        }
+        if (isNew && !m.mine && m.type == 'system') return;
         if (isNew && !m.mine && (activeThread != thread || m.type == 'call')) {
           if (m.type == 'call') {
             if (serverRings) return; // handled above
@@ -368,14 +635,20 @@ class SocialService extends ChangeNotifier {
                 '💬 ${m.name}',
                 m.type == 'text'
                     ? '${m.body}'
-                    : m.type == 'image'
-                        ? '📷 Photo'
-                        : m.type == 'location'
-                            ? '📍 Location'
-                            : '📞 Call');
+                    : const {
+                          'image': '📷 Photo',
+                          'location': '📍 Location',
+                          'voice': '🎤 Voice message',
+                          'meet': '📌 New meeting point',
+                        }[m.type] ??
+                        '📞 Call');
           }
         }
       });
+    }
+    if (latest is Map &&
+        latest.keys.any((k) => '$k'.startsWith('grp:') && groupFor('$k') == null)) {
+      refreshGroups();
     }
     if (pendingRequests > prevPending && prevPending >= 0 && _timer != null) {
       refreshFriends();

@@ -78,7 +78,7 @@ class AccountService extends ChangeNotifier {
       try {
         j = jsonDecode(r.body) as Map<String, dynamic>;
       } catch (_) {
-        return AccountResult(false, {}, 'Server HTTP ${r.statusCode} (is plugin v1.3 installed on the website?)');
+        return AccountResult(false, {}, 'Server HTTP ${r.statusCode} (is plugin v1.7 installed on the website?)');
       }
       if (r.statusCode == 200 && j['ok'] == true) return AccountResult(true, j);
       final msg = j['error'] ?? j['message'] ?? 'HTTP ${r.statusCode}';

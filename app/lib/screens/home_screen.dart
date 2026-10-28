@@ -17,6 +17,7 @@ import 'journey_guide_screen.dart';
 import 'prayer_qibla_screen.dart';
 import 'recommendations_screen.dart';
 import 'root.dart';
+import 'sos_screen.dart';
 import 'tasbeeh_screen.dart';
 import 'transport_screen.dart';
 import 'umrah_guide_screen.dart';
@@ -86,6 +87,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 14),
+
+            // ---- SOS ----
+            Material(
+              color: Colors.red.shade600,
+              borderRadius: BorderRadius.circular(16),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const SosScreen())),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Row(children: [
+                    Icon(Icons.sos_rounded, color: Colors.white, size: 34),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('SOS — Lost or need help?',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+                        Text('Sends your location to your partner & family at once',
+                            style: TextStyle(color: Colors.white70, fontSize: 12.5)),
+                      ]),
+                    ),
+                    Icon(Icons.chevron_right_rounded, color: Colors.white),
+                  ]),
+                ),
+              ),
             ),
             const SizedBox(height: 14),
 

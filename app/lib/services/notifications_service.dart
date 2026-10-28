@@ -26,6 +26,24 @@ class NotificationsService {
       await _plugin.initialize(
           const InitializationSettings(android: android, iOS: ios));
       _ready = true;
+      // Channels must exist up front so pushes from the website use them.
+      final droid = _plugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
+      if (droid != null) {
+        for (final c in const [
+          AndroidNotificationChannel('umrah_trip', 'Umrah Trip',
+              description: 'Messages, reminders and announcements', importance: Importance.high),
+          AndroidNotificationChannel('umrah_trip_calls', 'Calls',
+              description: 'Incoming voice and video calls', importance: Importance.max),
+          AndroidNotificationChannel('umrah_trip_sos', 'SOS alerts',
+              description: 'Emergency alerts from your partner, family or friends',
+              importance: Importance.max),
+        ]) {
+          try {
+            await droid.createNotificationChannel(c);
+          } catch (_) {}
+        }
+      }
     } catch (_) {
       // Notifications are best-effort; the app works fully without them.
     }
@@ -135,6 +153,46 @@ class NotificationsService {
               android: _callChannel,
               iOS: DarwinNotificationDetails(
                   presentAlert: true, presentSound: true, presentBanner: true)));
+    } catch (_) {}
+  }
+
+  static const _sosChannel = AndroidNotificationDetails(
+    'umrah_trip_sos',
+    'SOS alerts',
+    channelDescription: 'Emergency alerts from your partner, family or friends',
+    importance: Importance.max,
+    priority: Priority.max,
+    category: AndroidNotificationCategory.alarm,
+    fullScreenIntent: true,
+  );
+
+  Future<void> showSos(String title, String body) async {
+    await init();
+    if (!_ready) return;
+    try {
+      await _plugin.show(_idFor('sos'), title, body,
+          const NotificationDetails(
+              android: _sosChannel,
+              iOS: DarwinNotificationDetails(
+                  presentAlert: true,
+                  presentSound: true,
+                  presentBanner: true,
+                  interruptionLevel: InterruptionLevel.timeSensitive)));
+    } catch (_) {}
+  }
+
+  /// Shows a push that arrived from the website while the app was closed.
+  Future<void> showPush(String title, String body, {bool urgent = false, bool call = false}) async {
+    await init();
+    if (!_ready) return;
+    try {
+      await _plugin.show(
+          _idFor(call ? 'call' : (urgent ? 'sos' : 'push:$title')),
+          title,
+          body,
+          NotificationDetails(
+              android: call ? _callChannel : (urgent ? _sosChannel : _channel),
+              iOS: const DarwinNotificationDetails(presentAlert: true, presentSound: true)));
     } catch (_) {}
   }
 

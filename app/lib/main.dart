@@ -6,11 +6,13 @@ import 'core/strings.dart';
 import 'core/theme.dart';
 import 'screens/call_screen.dart';
 import 'screens/root.dart';
+import 'screens/sos_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/account_service.dart';
 import 'services/app_state.dart';
 import 'services/notifications_service.dart';
 import 'services/pair_state.dart';
+import 'services/push_service.dart';
 import 'services/site_service.dart';
 import 'services/social_service.dart';
 
@@ -34,6 +36,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
   late final SiteService siteService;
   late final AccountService accountService;
   late final SocialService socialService;
+  late final PushService pushService;
 
   @override
   void initState() {
@@ -43,6 +46,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
     siteService = SiteService();
     accountService = AccountService(state, pairState);
     socialService = SocialService(accountService, pairState);
+    pushService = PushService(accountService, pairState, socialService);
     siteService.addListener(_onSiteUpdate);
     socialService.incomingCalls.stream.listen((c) {
       if (socialService.inCall) {
@@ -61,6 +65,15 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
               video: c.video,
               peerAvatar: c.avatar ?? socialService.avatarFor(c.thread),
               callId: c.callId)));
+    });
+    var sosOpen = false;
+    socialService.sosAlerts.stream.listen((a) async {
+      final nav = appNavigatorKey.currentState;
+      if (nav == null || sosOpen) return;
+      sosOpen = true;
+      await nav.push(MaterialPageRoute(
+          fullscreenDialog: true, builder: (_) => SosAlertScreen(alert: a)));
+      sosOpen = false;
     });
     state.init().catchError((e) {
       // Never let a startup error strand the user on the splash screen.
@@ -82,6 +95,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
           .init()
           .then((_) => socialService.init())
           .then((_) => accountService.refreshProfile())
+          .then((_) => pushService.init())
           .catchError((_) {});
     });
   }
