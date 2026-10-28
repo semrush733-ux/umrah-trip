@@ -560,8 +560,8 @@ class SocialService extends ChangeNotifier {
   }
 
   int get totalUnread =>
-      friends.where((f) => f.accepted).fold(0, (s, f) => s + unreadFor(f.thread)) +
-      groups.fold(0, (s, g) => s + unreadFor(g.thread)) +
+      friends.where((f) => f.accepted).fold<int>(0, (s, f) => s + unreadFor(f.thread)) +
+      groups.fold<int>(0, (s, g) => s + unreadFor(g.thread)) +
       (pair.paired ? unreadFor('pair:${pair.code}') : 0);
 
   Future<void> markSeen(String thread, int id) async {
