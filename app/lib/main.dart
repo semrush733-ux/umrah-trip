@@ -21,6 +21,21 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Instead of a blank white/grey screen, show what went wrong so it can
+  // be reported (screenshot) and fixed.
+  ErrorWidget.builder = (details) => Material(
+        color: const Color(0xFF0B1F1B),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Text(
+              'Sorry — this screen hit a problem.\nPlease send a screenshot of this to support.\n\n'
+              '${details.exceptionAsString()}\n\n${details.stack.toString().split('\n').take(8).join('\n')}',
+              style: const TextStyle(color: Colors.white, fontSize: 12.5),
+            ),
+          ),
+        ),
+      );
   runApp(const UmrahJourneyApp());
 }
 
