@@ -4,8 +4,10 @@ import 'package:provider/provider.dart';
 import '../core/strings.dart';
 import '../core/theme.dart';
 import '../services/app_state.dart';
+import '../services/account_service.dart';
 import '../services/pair_state.dart';
 import '../widgets/destination_card.dart';
+import 'account_screen.dart';
 import 'expenses_screen.dart';
 import 'experiences_screen.dart';
 import 'memories_screen.dart';
@@ -42,13 +44,42 @@ class ProfileScreen extends StatelessWidget {
                   children: [
                     Text(s.profile,
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800)),
-                    const Text('Guest · Umrah Trip', style: TextStyle(fontSize: 13)),
+                    Builder(builder: (context) {
+                      final acct = context.watch<AccountService>();
+                      return Text(
+                          acct.loggedIn
+                              ? '${acct.name ?? ''} · ${acct.email ?? ''}'
+                              : 'Guest · Umrah Trip',
+                          style: const TextStyle(fontSize: 13));
+                    }),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
+
+          // Account (login / cloud backup)
+          Builder(builder: (context) {
+            final acct = context.watch<AccountService>();
+            return Card(
+              child: ListTile(
+                leading: Icon(
+                    acct.loggedIn ? Icons.cloud_done_rounded : Icons.account_circle_rounded,
+                    color: acct.loggedIn ? Colors.green : AppColors.emerald,
+                    size: 30),
+                title: Text(acct.loggedIn ? 'My Account' : 'Login / Sign up',
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text(acct.loggedIn
+                    ? 'Data cloud par mehfooz — reinstall par bhi wapas'
+                    : 'Account banayen taake data kabhi zaya na ho'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const AccountScreen())),
+              ),
+            );
+          }),
+          const SizedBox(height: 12),
 
           // Language
           Card(

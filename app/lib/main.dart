@@ -6,6 +6,7 @@ import 'core/strings.dart';
 import 'core/theme.dart';
 import 'screens/root.dart';
 import 'screens/splash_screen.dart';
+import 'services/account_service.dart';
 import 'services/app_state.dart';
 import 'services/notifications_service.dart';
 import 'services/pair_state.dart';
@@ -26,6 +27,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
   late final AppState state;
   late final PairState pairState;
   late final SiteService siteService;
+  late final AccountService accountService;
 
   @override
   void initState() {
@@ -33,6 +35,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
     state = AppState();
     pairState = PairState(state);
     siteService = SiteService();
+    accountService = AccountService(state, pairState);
     siteService.addListener(_onSiteUpdate);
     state.init().catchError((e) {
       // Never let a startup error strand the user on the splash screen.
@@ -47,6 +50,9 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
       } catch (_) {}
       try {
         NotificationsService.instance.init();
+      } catch (_) {}
+      try {
+        accountService.init();
       } catch (_) {}
     });
   }
@@ -73,6 +79,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
         ChangeNotifierProvider.value(value: state),
         ChangeNotifierProvider.value(value: pairState),
         ChangeNotifierProvider.value(value: siteService),
+        ChangeNotifierProvider.value(value: accountService),
       ],
       child: Consumer<AppState>(
         builder: (context, app, _) {

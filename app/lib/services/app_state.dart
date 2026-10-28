@@ -340,6 +340,99 @@ class AppState extends ChangeNotifier {
 
   VisitStatus statusOf(String destinationId) => planner.statusOfDestination(destinationId);
 
+  // ---------- Cloud backup (account) ----------
+
+  /// Everything the user created, as plain JSON (for account backup).
+  Map<String, dynamic> exportData() => {
+        'v': 1,
+        'days': planner.days.map((d) => d.toMap()).toList(),
+        'visits': planner.visits.map((v) => v.toMap()).toList(),
+        'favorites': favorites.toList(),
+        'expenses': expenses.map((e) => e.toMap()).toList(),
+        'settings': {
+          'lang': language.index,
+          'theme': themeMode.index,
+          'romanUrdu': romanUrdu,
+          'manualRegion': manualRegion,
+          'hotelLat': hotelLat,
+          'hotelLng': hotelLng,
+          'hotelLabel': hotelLabel,
+          'budgetSar': budgetSar,
+          'pkrPerSar': pkrPerSar,
+        },
+      };
+
+  bool get hasLocalData =>
+      planner.days.isNotEmpty ||
+      planner.visits.isNotEmpty ||
+      favorites.isNotEmpty ||
+      expenses.isNotEmpty;
+
+  /// Replaces local data with a cloud backup (after login/reinstall).
+  Future<void> importData(Map<String, dynamic> data) async {
+    List<Map<String, dynamic>> maps(dynamic v) => v is List
+        ? v.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList()
+        : <Map<String, dynamic>>[];
+
+    final days = <TripDay>[];
+    for (final m in maps(data['days'])) {
+      try {
+        days.add(TripDay.fromMap(m));
+      } catch (_) {}
+    }
+    final visits = <TripVisit>[];
+    for (final m in maps(data['visits'])) {
+      try {
+        visits.add(TripVisit.fromMap(m));
+      } catch (_) {}
+    }
+    final favs = data['favorites'] is List
+        ? (data['favorites'] as List).map((e) => '$e').toSet()
+        : <String>{};
+    final exps = <Expense>[];
+    for (final m in maps(data['expenses'])) {
+      try {
+        exps.add(Expense.fromMap(m));
+      } catch (_) {}
+    }
+
+    await dbService.replaceAll(
+        days: days, visits: visits, favorites: favs, expenses: exps);
+    planner.days
+      ..clear()
+      ..addAll(days);
+    planner.visits
+      ..clear()
+      ..addAll(visits);
+    favorites
+      ..clear()
+      ..addAll(favs);
+    expenses
+      ..clear()
+      ..addAll(exps);
+
+    final s = data['settings'];
+    if (s is Map) {
+      double? dbl(dynamic v) => v == null ? null : double.tryParse('$v');
+      final li = int.tryParse('${s['lang']}');
+      if (li != null && li >= 0 && li < AppLanguage.values.length) {
+        await setLanguage(AppLanguage.values[li]);
+      }
+      final ti = int.tryParse('${s['theme']}');
+      if (ti != null && ti >= 0 && ti < ThemeMode.values.length) {
+        await setThemeMode(ThemeMode.values[ti]);
+      }
+      if (s['romanUrdu'] is bool) await setRomanUrdu(s['romanUrdu'] as bool);
+      await setManualRegion(s['manualRegion']?.toString());
+      final hl = dbl(s['hotelLat']), hg = dbl(s['hotelLng']);
+      await setHotel(hl, hg, hl == null ? null : s['hotelLabel']?.toString());
+      await setBudget(dbl(s['budgetSar']));
+      final r = dbl(s['pkrPerSar']);
+      if (r != null) await setPkrRate(r);
+    }
+    notifyListeners();
+  }
+
   /// Last-resort unblock for the splash screen.
   void forceReady() {
     ready = true;

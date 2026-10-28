@@ -99,6 +99,28 @@ class PairState extends ChangeNotifier {
     return code;
   }
 
+  /// For account backup: the pairing credentials of this account.
+  Map<String, dynamic>? exportPairing() => paired
+      ? {'code': code, 'token': token, 'name': myName}
+      : (myName.isNotEmpty ? {'name': myName} : null);
+
+  /// Restores pairing after reinstall + login (only if not already paired).
+  Future<void> importPairing(Map<String, dynamic>? p) async {
+    if (p == null) return;
+    final n = p['name']?.toString();
+    if (n != null && n.isNotEmpty) myName = n;
+    final c = p['code']?.toString(), t = p['token']?.toString();
+    if (!paired && c != null && c.isNotEmpty && t != null && t.isNotEmpty) {
+      code = c;
+      token = t;
+      await _persist();
+      _startLoop();
+    } else {
+      await _persist();
+    }
+    notifyListeners();
+  }
+
   /// Same-WiFi pairing (server matches both phones by public IP).
   /// Returns the code on success (created or joined), null on failure.
   Future<String?> nearbyPair(String name) async {

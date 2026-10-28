@@ -102,6 +102,34 @@ class AppDatabase {
     await (await db).delete('expenses', where: 'id = ?', whereArgs: [id]);
   }
 
+  /// Replaces ALL local trip data atomically (used by cloud restore).
+  Future<void> replaceAll({
+    required List<TripDay> days,
+    required List<TripVisit> visits,
+    required Set<String> favorites,
+    required List<Expense> expenses,
+  }) async {
+    final d = await db;
+    await d.transaction((txn) async {
+      await txn.delete('trip_days');
+      await txn.delete('trip_visits');
+      await txn.delete('favorites');
+      await txn.delete('expenses');
+      for (final x in days) {
+        await txn.insert('trip_days', x.toMap());
+      }
+      for (final x in visits) {
+        await txn.insert('trip_visits', x.toMap());
+      }
+      for (final f in favorites) {
+        await txn.insert('favorites', {'destination_id': f});
+      }
+      for (final e in expenses) {
+        await txn.insert('expenses', e.toMap());
+      }
+    });
+  }
+
   Future<List<Expense>> loadExpenses() async =>
       (await (await db).query('expenses', orderBy: 'date DESC')).map(Expense.fromMap).toList();
 }

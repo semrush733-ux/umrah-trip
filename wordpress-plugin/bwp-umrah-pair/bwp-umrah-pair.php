@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: BWP Umrah Pair
- * Description: Umrah Trip app backend — couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.2.0
+ * Description: Umrah Trip app backend — user accounts with cloud backup/restore, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
+ * Version: 1.3.0
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.2.0');
+define('BWP_UMRAH_PAIR_VERSION', '1.3.0');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -37,6 +37,19 @@ function bwp_umrah_pair_install() {
         members LONGTEXT NOT NULL,
         photos LONGTEXT NOT NULL,
         PRIMARY KEY (code)
+    ) $charset;");
+    $users = $wpdb->prefix . 'bwp_umrah_users';
+    dbDelta("CREATE TABLE $users (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+        email VARCHAR(190) NOT NULL,
+        name VARCHAR(80) NOT NULL DEFAULT '',
+        pass_hash VARCHAR(255) NOT NULL,
+        tokens TEXT NOT NULL,
+        data LONGTEXT NULL,
+        data_updated BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        created BIGINT UNSIGNED NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY email (email)
     ) $charset;");
     update_option('bwp_umrah_pair_db', BWP_UMRAH_PAIR_VERSION);
 }
@@ -163,6 +176,12 @@ add_action('rest_api_init', function () {
     register_rest_route($ns, '/config',       $pub + ['methods' => 'GET',  'callback' => 'bwp_up_route_config']);
     register_rest_route($ns, '/destinations', $pub + ['methods' => 'GET',  'callback' => 'bwp_up_route_destinations']);
     register_rest_route($ns, '/ai',           $pub + ['methods' => 'POST', 'callback' => 'bwp_up_route_ai']);
+    register_rest_route($ns, '/account/register', $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_register']);
+    register_rest_route($ns, '/account/login',    $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_login']);
+    register_rest_route($ns, '/account/backup',   $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_backup']);
+    register_rest_route($ns, '/account/restore',  $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_restore']);
+    register_rest_route($ns, '/account/logout',   $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_logout']);
+    register_rest_route($ns, '/account/delete',   $pub + ['methods' => 'POST', 'callback' => 'bwp_ua_delete']);
 });
 
 /**
@@ -492,4 +511,177 @@ function bwp_up_route_unpair(WP_REST_Request $req) {
     if (!$me) return bwp_up_err('Not authorised for this code', 403);
     $wpdb->delete(bwp_umrah_pair_table(), ['code' => $code]);
     return bwp_up_json([]);
+}
+
+
+// ================================================================ accounts
+// App user accounts (separate from WordPress users). Passwords are stored
+// with password_hash(); device sessions are random tokens stored as SHA-256
+// hashes (max 5 devices). Each account keeps one JSON backup of the app data.
+
+function bwp_ua_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_users'; }
+
+function bwp_ua_find_by_email($email) {
+    global $wpdb;
+    return $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_ua_table() . ' WHERE email = %s', $email), ARRAY_A);
+}
+
+function bwp_ua_find_by_token($token) {
+    global $wpdb;
+    $token = (string) $token;
+    if (strlen($token) < 20) return null;
+    $h = hash('sha256', $token);
+    $row = $wpdb->get_row($wpdb->prepare(
+        'SELECT * FROM ' . bwp_ua_table() . ' WHERE tokens LIKE %s', '%' . $wpdb->esc_like($h) . '%'
+    ), ARRAY_A);
+    if (!$row) return null;
+    $list = json_decode($row['tokens'], true) ?: [];
+    return in_array($h, $list, true) ? $row : null;
+}
+
+function bwp_ua_issue_token($row) {
+    global $wpdb;
+    $token = wp_generate_password(48, false, false);
+    $list = json_decode($row['tokens'], true) ?: [];
+    $list[] = hash('sha256', $token);
+    $list = array_slice($list, -5); // keep the 5 most recent devices
+    $wpdb->update(bwp_ua_table(), ['tokens' => wp_json_encode($list)], ['id' => $row['id']]);
+    return $token;
+}
+
+function bwp_ua_valid_email($email) {
+    return (bool) is_email($email);
+}
+
+function bwp_ua_register(WP_REST_Request $req) {
+    global $wpdb;
+    if (bwp_up_rate_limited('acct_reg', 15, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests, try later', 429);
+    $email = strtolower(trim(sanitize_email((string) $req->get_param('email'))));
+    $pass  = (string) $req->get_param('password');
+    $name  = bwp_up_sanitize_name($req->get_param('name'));
+    if (!bwp_ua_valid_email($email)) return bwp_up_err('Valid email likhein');
+    if (strlen($pass) < 6) return bwp_up_err('Password kam az kam 6 characters ka ho');
+    if (bwp_ua_find_by_email($email)) return bwp_up_err('Is email se account pehle se bana hua hai — Login karein', 409);
+    $ok = $wpdb->insert(bwp_ua_table(), [
+        'email' => $email,
+        'name' => $name,
+        'pass_hash' => password_hash($pass, PASSWORD_DEFAULT),
+        'tokens' => '[]',
+        'data' => null,
+        'data_updated' => 0,
+        'created' => bwp_up_now(),
+    ]);
+    if (!$ok) return bwp_up_err('Account create nahi hua, dobara try karein', 500);
+    $row = bwp_ua_find_by_email($email);
+    $token = bwp_ua_issue_token($row);
+    return bwp_up_json(['token' => $token, 'email' => $email, 'name' => $name, 'data' => null, 'data_updated' => 0]);
+}
+
+function bwp_ua_login(WP_REST_Request $req) {
+    if (bwp_up_rate_limited('acct_login', 30, HOUR_IN_SECONDS)) return bwp_up_err('Too many attempts, try later', 429);
+    $email = strtolower(trim(sanitize_email((string) $req->get_param('email'))));
+    $pass  = (string) $req->get_param('password');
+    $row = bwp_ua_find_by_email($email);
+    if (!$row || !password_verify($pass, $row['pass_hash'])) {
+        return bwp_up_err('Email ya password ghalat hai', 401);
+    }
+    $token = bwp_ua_issue_token($row);
+    $data = $row['data'] ? json_decode($row['data'], true) : null;
+    return bwp_up_json([
+        'token' => $token, 'email' => $row['email'], 'name' => $row['name'],
+        'data' => $data, 'data_updated' => (int) $row['data_updated'],
+    ]);
+}
+
+function bwp_ua_backup(WP_REST_Request $req) {
+    global $wpdb;
+    if (bwp_up_rate_limited('acct_backup', 400, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
+    $row = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$row) return bwp_up_err('Session expired — dobara login karein', 401);
+    $data = $req->get_param('data');
+    if (!is_array($data)) return bwp_up_err('Invalid backup data');
+    $json = wp_json_encode($data);
+    if ($json === false || strlen($json) > 3 * 1024 * 1024) return bwp_up_err('Backup too large');
+    $ts = bwp_up_now();
+    $wpdb->update(bwp_ua_table(), ['data' => $json, 'data_updated' => $ts], ['id' => $row['id']]);
+    return bwp_up_json(['data_updated' => $ts]);
+}
+
+function bwp_ua_restore(WP_REST_Request $req) {
+    $row = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$row) return bwp_up_err('Session expired — dobara login karein', 401);
+    return bwp_up_json([
+        'email' => $row['email'], 'name' => $row['name'],
+        'data' => $row['data'] ? json_decode($row['data'], true) : null,
+        'data_updated' => (int) $row['data_updated'],
+    ]);
+}
+
+function bwp_ua_logout(WP_REST_Request $req) {
+    global $wpdb;
+    $token = (string) $req->get_param('token');
+    $row = bwp_ua_find_by_token($token);
+    if ($row) {
+        $h = hash('sha256', $token);
+        $list = array_values(array_filter(json_decode($row['tokens'], true) ?: [], function ($x) use ($h) { return $x !== $h; }));
+        $wpdb->update(bwp_ua_table(), ['tokens' => wp_json_encode($list)], ['id' => $row['id']]);
+    }
+    return bwp_up_json([]);
+}
+
+function bwp_ua_delete(WP_REST_Request $req) {
+    global $wpdb;
+    $row = bwp_ua_find_by_token($req->get_param('token'));
+    if (!$row) return bwp_up_err('Session expired — dobara login karein', 401);
+    if (!password_verify((string) $req->get_param('password'), $row['pass_hash'])) {
+        return bwp_up_err('Password ghalat hai', 401);
+    }
+    $wpdb->delete(bwp_ua_table(), ['id' => $row['id']]);
+    return bwp_up_json([]);
+}
+
+// Admin: show account count on the settings page footer.
+add_action('admin_notices', function () {
+    $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+    if (!$screen || $screen->id !== 'settings_page_bwp-umrah-app') return;
+    global $wpdb;
+    $n = (int) $wpdb->get_var('SELECT COUNT(*) FROM ' . bwp_ua_table());
+    echo '<div class="notice notice-info"><p>Umrah Trip app accounts: <strong>' . esc_html($n) . '</strong></p></div>';
+});
+
+// ---- Admin: Settings → Umrah Trip Users (list + password reset) ----
+add_action('admin_menu', function () {
+    add_options_page('Umrah Trip Users', 'Umrah Trip Users', 'manage_options', 'bwp-umrah-users', 'bwp_ua_admin_page');
+});
+
+function bwp_ua_admin_page() {
+    if (!current_user_can('manage_options')) return;
+    global $wpdb;
+    if (isset($_POST['bwp_ua_reset']) && check_admin_referer('bwp_ua_reset')) {
+        $id = (int) $_POST['user_id'];
+        $pw = (string) wp_unslash($_POST['new_password'] ?? '');
+        if ($id > 0 && strlen($pw) >= 6) {
+            // New password + sign out all devices.
+            $wpdb->update(bwp_ua_table(), ['pass_hash' => password_hash($pw, PASSWORD_DEFAULT), 'tokens' => '[]'], ['id' => $id]);
+            echo '<div class="notice notice-success"><p>Password reset. User ab naye password se login kare.</p></div>';
+        } else {
+            echo '<div class="notice notice-error"><p>Password kam az kam 6 characters ka ho.</p></div>';
+        }
+    }
+    $rows = $wpdb->get_results('SELECT id, email, name, data_updated, created, CHAR_LENGTH(data) AS sz FROM ' . bwp_ua_table() . ' ORDER BY id DESC LIMIT 500', ARRAY_A);
+    echo '<div class="wrap"><h1>Umrah Trip — App Users</h1>';
+    echo '<p>Total: <strong>' . count($rows) . '</strong> (latest 500)</p>';
+    echo '<table class="widefat striped"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Joined</th><th>Last backup</th><th>Backup size</th><th>Reset password</th></tr></thead><tbody>';
+    foreach ($rows as $r) {
+        echo '<tr><td>' . (int) $r['id'] . '</td><td>' . esc_html($r['name']) . '</td><td>' . esc_html($r['email']) . '</td>';
+        echo '<td>' . esc_html(date_i18n('d M Y', (int) $r['created'])) . '</td>';
+        echo '<td>' . ($r['data_updated'] ? esc_html(date_i18n('d M Y H:i', (int) $r['data_updated'])) : '—') . '</td>';
+        echo '<td>' . ($r['sz'] ? esc_html(size_format((int) $r['sz'])) : '—') . '</td><td>';
+        echo '<form method="post" style="display:flex;gap:6px">';
+        wp_nonce_field('bwp_ua_reset');
+        echo '<input type="hidden" name="user_id" value="' . (int) $r['id'] . '">';
+        echo '<input type="text" name="new_password" placeholder="new password" style="width:140px">';
+        echo '<button class="button" name="bwp_ua_reset" value="1">Reset</button></form></td></tr>';
+    }
+    echo '</tbody></table></div>';
 }
