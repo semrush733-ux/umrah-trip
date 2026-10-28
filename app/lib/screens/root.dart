@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../core/strings.dart';
+import 'package:provider/provider.dart';
+
+import '../services/social_service.dart';
 import 'explore_screen.dart';
+import 'friends_screen.dart';
 import 'home_screen.dart';
 import 'map_screen.dart';
 import 'profile_screen.dart';
 import 'trip_screen.dart';
 
-/// Five-tab shell: Home · Explore · Map · My Trip · Profile.
+/// Six-tab shell: Home · Chats · Explore · Map · My Trip · Profile.
 class RootScreen extends StatefulWidget {
   const RootScreen({super.key});
 
@@ -42,11 +46,14 @@ class _RootScreenState extends State<RootScreen> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    final social = context.watch<SocialService>();
+    final badge = social.totalUnread + social.pendingRequests;
     return Scaffold(
       body: IndexedStack(
         index: _index,
         children: const [
           HomeScreen(),
+          FriendsScreen(),
           ExploreScreen(),
           MapScreen(),
           TripScreen(),
@@ -54,6 +61,7 @@ class _RootScreenState extends State<RootScreen> {
         ],
       ),
       bottomNavigationBar: NavigationBar(
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         selectedIndex: _index,
         onDestinationSelected: (i) {
           RootScreen.tabIndex.value = i;
@@ -61,6 +69,16 @@ class _RootScreenState extends State<RootScreen> {
         },
         destinations: [
           NavigationDestination(icon: const Icon(Icons.home_outlined), selectedIcon: const Icon(Icons.home_rounded), label: s.home),
+          NavigationDestination(
+              icon: Badge(
+                  isLabelVisible: badge > 0,
+                  label: Text('$badge'),
+                  child: const Icon(Icons.forum_outlined)),
+              selectedIcon: Badge(
+                  isLabelVisible: badge > 0,
+                  label: Text('$badge'),
+                  child: const Icon(Icons.forum_rounded)),
+              label: 'Chats'),
           NavigationDestination(icon: const Icon(Icons.explore_outlined), selectedIcon: const Icon(Icons.explore_rounded), label: s.explore),
           NavigationDestination(icon: const Icon(Icons.map_outlined), selectedIcon: const Icon(Icons.map_rounded), label: s.map),
           NavigationDestination(icon: const Icon(Icons.event_note_outlined), selectedIcon: const Icon(Icons.event_note_rounded), label: s.myTrip),

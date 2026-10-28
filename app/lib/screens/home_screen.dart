@@ -13,7 +13,6 @@ import '../widgets/destination_card.dart';
 import 'ai_screen.dart';
 import 'destination_detail.dart';
 import 'duas_screen.dart';
-import 'friends_screen.dart';
 import 'journey_guide_screen.dart';
 import 'prayer_qibla_screen.dart';
 import 'recommendations_screen.dart';
@@ -190,11 +189,6 @@ class _HomeScreenState extends State<HomeScreen> {
               childAspectRatio: 1.06,
               children: [
                 _QuickAction(
-                    icon: Icons.forum_rounded,
-                    label: 'Chats & Calls',
-                    onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                        builder: (_) => const FriendsScreen()))),
-                _QuickAction(
                     icon: Icons.mosque_rounded,
                     label: 'Prayer & Qibla',
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
@@ -343,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Text(s.planYourNext,
                               style: const TextStyle(fontWeight: FontWeight.w700))),
                       FilledButton(
-                        onPressed: () => RootScreen.tabIndex.value = 3,
+                        onPressed: () => RootScreen.tabIndex.value = 4,
                         style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
                         child: const Icon(Icons.add_rounded),
                       ),

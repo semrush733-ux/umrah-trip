@@ -97,6 +97,53 @@ class NotificationsService {
     } catch (_) {}
   }
 
+  static const _callChannel = AndroidNotificationDetails(
+    'umrah_trip_calls',
+    'Calls',
+    channelDescription: 'Incoming voice and video calls',
+    importance: Importance.max,
+    priority: Priority.max,
+    category: AndroidNotificationCategory.call,
+    fullScreenIntent: true,
+    timeoutAfter: 45000,
+  );
+
+  /// Has the user allowed notifications? (null = unknown on this platform)
+  Future<bool?> enabled() async {
+    await init();
+    if (!_ready) return null;
+    try {
+      final a = await _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+          ?.areNotificationsEnabled();
+      if (a != null) return a;
+      final i = await _plugin
+          .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>()
+          ?.checkPermissions();
+      return i?.isEnabled;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> showCall(String title, String body) async {
+    await init();
+    if (!_ready) return;
+    try {
+      await _plugin.show(_idFor('call'), title, body,
+          const NotificationDetails(
+              android: _callChannel,
+              iOS: DarwinNotificationDetails(
+                  presentAlert: true, presentSound: true, presentBanner: true)));
+    } catch (_) {}
+  }
+
+  Future<void> cancelCall() async {
+    try {
+      await _plugin.cancel(_idFor('call'));
+    } catch (_) {}
+  }
+
   Future<void> showAnnouncement(String title, String body) async {
     await init();
     if (!_ready) return;

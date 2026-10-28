@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/theme.dart';
 import '../services/app_state.dart';
 import '../services/social_service.dart';
+import '../widgets/user_avatar.dart';
 import 'call_screen.dart';
 
 /// Live chat (polling every 3 s while open) with text, photos, location and
@@ -147,7 +148,10 @@ class _ChatScreenState extends State<ChatScreen> {
     await Navigator.of(context).push(MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => CallScreen.outgoing(
-            thread: widget.thread, peerName: widget.title, video: video)));
+            thread: widget.thread,
+            peerName: widget.title,
+            peerAvatar: _social.avatarFor(widget.thread),
+            video: video)));
     if (!mounted) return;
     await _load();
     _toBottom();
@@ -199,14 +203,18 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Column(
+        title: Row(children: [
+          UserAvatar(name: widget.title, url: _social.avatarFor(widget.thread), radius: 18),
+          const SizedBox(width: 10),
+          Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(widget.title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
             if (widget.subtitle != null)
               Text(widget.subtitle!, style: const TextStyle(fontSize: 12)),
           ],
-        ),
+          )),
+        ]),
         actions: [
           IconButton(
             tooltip: 'Voice call',
@@ -373,11 +381,18 @@ class _Bubble extends StatelessWidget {
                       ? () => Navigator.of(context).push(MaterialPageRoute(
                           fullscreenDialog: true,
                           builder: (_) => CallScreen.outgoing(
-                              thread: thread, peerName: peerName, video: video)))
+                              thread: thread,
+                              peerName: peerName,
+                              peerAvatar: context.read<SocialService>().avatarFor(thread),
+                              video: video)))
                       : () => Navigator.of(context).push(MaterialPageRoute(
                           fullscreenDialog: true,
                           builder: (_) => CallScreen.incoming(
-                              thread: thread, peerName: m.name, video: video, callId: callId))))
+                              thread: thread,
+                              peerName: m.name,
+                              peerAvatar: context.read<SocialService>().avatarFor(thread),
+                              video: video,
+                              callId: callId))))
                   : (url.isEmpty
                       ? null
                       : () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication)),

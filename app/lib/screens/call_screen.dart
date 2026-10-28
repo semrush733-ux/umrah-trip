@@ -5,6 +5,8 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
 import '../core/theme.dart';
+import '../services/notifications_service.dart';
+import '../services/ringtone_service.dart';
 import '../services/social_service.dart';
 
 /// In-app voice/video call over WebRTC. The website only relays one offer
@@ -14,10 +16,15 @@ class CallScreen extends StatefulWidget {
   final String thread;
   final String peerName;
   final bool video;
+  final String? peerAvatar; // profile photo URL
   final String? incomingCallId; // set when answering
 
   const CallScreen.outgoing(
-      {super.key, required this.thread, required this.peerName, required this.video})
+      {super.key,
+      required this.thread,
+      required this.peerName,
+      required this.video,
+      this.peerAvatar})
       : incomingCallId = null;
 
   const CallScreen.incoming(
@@ -25,6 +32,7 @@ class CallScreen extends StatefulWidget {
       required this.thread,
       required this.peerName,
       required this.video,
+      this.peerAvatar,
       required String callId})
       : incomingCallId = callId;
 
@@ -52,13 +60,16 @@ class _CallScreenState extends State<CallScreen> {
   Timer? _giveUp;
   int _seconds = 0;
   bool _closing = false;
-
-  bool get _isCaller => widget.incomingCallId == null;
+  bool _isCaller = true;
+  late bool _video;
 
   @override
   void initState() {
     super.initState();
+    _isCaller = widget.incomingCallId == null;
+    _video = _video;
     _social = context.read<SocialService>();
+    _social.inCall = true;
     _start();
   }
 
@@ -72,8 +83,9 @@ class _CallScreenState extends State<CallScreen> {
       _social.markCallHandled(_callId!);
       setState(() {
         _phase = _Phase.incoming;
-        _status = widget.video ? 'Incoming video call' : 'Incoming voice call';
+        _status = _video ? 'Incoming video call' : 'Incoming voice call';
       });
+      RingtoneService.instance.startRingtone();
       // Watch for the caller hanging up before we answer.
       _poll = Timer.periodic(const Duration(seconds: 2), (_) => _watchIncoming());
     }
@@ -85,16 +97,16 @@ class _CallScreenState extends State<CallScreen> {
     try {
       _stream = await navigator.mediaDevices.getUserMedia({
         'audio': true,
-        'video': widget.video
+        'video': _video
             ? {'facingMode': 'user', 'width': 640, 'height': 480, 'frameRate': 24}
             : false,
       });
-      if (widget.video) _local.srcObject = _stream;
-      await Helper.setSpeakerphoneOn(widget.video);
-      _speaker = widget.video;
+      if (_video) _local.srcObject = _stream;
+      await Helper.setSpeakerphoneOn(_video);
+      _speaker = _video;
       return true;
     } catch (e) {
-      _fail('Microphone${widget.video ? '/camera' : ''} permission is needed for calls.');
+      _fail('Microphone${_video ? '/camera' : ''} permission is needed for calls.');
       return false;
     }
   }
@@ -157,14 +169,28 @@ class _CallScreenState extends State<CallScreen> {
     setState(() => _status = 'Calling…');
     final offer = await _pc!.createOffer({
       'offerToReceiveAudio': true,
-      'offerToReceiveVideo': widget.video,
+      'offerToReceiveVideo': _video,
     });
     await _pc!.setLocalDescription(offer);
     final full = await _completeLocalDescription();
-    final r = await _social.callStart(widget.thread, full, widget.video);
+    final r = await _social.callStart(widget.thread, full, _video);
     if (!mounted) return;
     if (!r.ok) {
       _fail(r.error ?? 'Could not start the call');
+      return;
+    }
+    if (r.data['busy'] == true) {
+      _endWith('${widget.peerName} is on another call');
+      return;
+    }
+    final join = '${r.data['join'] ?? ''}';
+    if (join.isNotEmpty) {
+      // They were calling us at the same moment — just connect to their call.
+      _isCaller = false;
+      _callId = join;
+      _social.markCallHandled(join);
+      if (r.data['video'] == true) _video = true;
+      await _accept();
       return;
     }
     _callId = '${r.data['call_id']}';
@@ -173,6 +199,7 @@ class _CallScreenState extends State<CallScreen> {
       _phase = _Phase.ringing;
       _status = 'Ringing…';
     });
+    RingtoneService.instance.startRingback();
     _giveUp = Timer(const Duration(seconds: 60), () {
       if (_phase == _Phase.ringing) _hangUp(reason: 'No answer');
     });
@@ -187,11 +214,13 @@ class _CallScreenState extends State<CallScreen> {
     if (c == null || !mounted) return;
     final st = '${c['status']}';
     if (st == 'declined') { _endWith('Call declined'); return; }
+    if (st == 'busy') { _endWith('${widget.peerName} is on another call'); return; }
     if (st == 'ended') { _endWith('Call ended'); return; }
     if (st == 'missed') { _endWith('No answer'); return; }
     final ans = c['answer'];
     if (!_answerApplied && ans is Map && '${ans['sdp']}'.isNotEmpty) {
       _answerApplied = true;
+      RingtoneService.instance.stop();
       setState(() {
         _phase = _Phase.connecting;
         _status = 'Connecting…';
@@ -220,6 +249,8 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _accept() async {
     _poll?.cancel();
+    RingtoneService.instance.stop();
+    NotificationsService.instance.cancelCall();
     setState(() {
       _phase = _Phase.connecting;
       _status = 'Connecting…';
@@ -231,7 +262,21 @@ class _CallScreenState extends State<CallScreen> {
       _endWith('This call has already ended');
       return;
     }
-    if (!await _openMedia()) return;
+    if (_stream == null && !await _openMedia()) return;
+    if (_stream != null && _video && _local.srcObject == null) {
+      // Joined a video call from a voice-call start: reopen with camera.
+      try {
+        for (final t in _stream!.getTracks()) {
+          t.stop();
+        }
+      } catch (_) {}
+      _stream = null;
+      if (!await _openMedia()) return;
+    }
+    try {
+      await _pc?.close();
+    } catch (_) {}
+    _pc = null;
     await _createPc();
     await _pc!.setRemoteDescription(RTCSessionDescription('${offer['sdp']}', '${offer['type']}'));
     final answer = await _pc!.createAnswer({});
@@ -249,6 +294,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _decline() async {
+    RingtoneService.instance.stop();
+    NotificationsService.instance.cancelCall();
     if (_callId != null) await _social.callEnd(widget.thread, _callId!, declined: true);
     _close();
   }
@@ -292,6 +339,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _teardown() {
+    RingtoneService.instance.stop();
     _poll?.cancel();
     _clock?.cancel();
     _giveUp?.cancel();
@@ -306,6 +354,8 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    _social.inCall = false;
+    NotificationsService.instance.cancelCall();
     _teardown();
     _local.srcObject = null;
     _remote.srcObject = null;
@@ -348,7 +398,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final showRemoteVideo = widget.video && _remoteHasVideo && _phase == _Phase.connected;
+    final showRemoteVideo = _video && _remoteHasVideo && _phase == _Phase.connected;
     return PopScope(
       canPop: _phase == _Phase.ended || _closing,
       child: Scaffold(
@@ -378,8 +428,11 @@ class _CallScreenState extends State<CallScreen> {
                   const SizedBox(height: 40),
                   if (!showRemoteVideo) ...[
                     CircleAvatar(
-                      radius: 52,
+                      radius: 56,
                       backgroundColor: AppColors.gold,
+                      foregroundImage: (widget.peerAvatar ?? '').isNotEmpty
+                          ? NetworkImage(widget.peerAvatar!)
+                          : null,
                       child: Text(
                           widget.peerName.isEmpty ? '?' : widget.peerName[0].toUpperCase(),
                           style: const TextStyle(
@@ -408,7 +461,7 @@ class _CallScreenState extends State<CallScreen> {
                               label: 'Decline',
                               onTap: _decline),
                           _RoundBtn(
-                              icon: widget.video ? Icons.videocam_rounded : Icons.call_rounded,
+                              icon: _video ? Icons.videocam_rounded : Icons.call_rounded,
                               color: Colors.green,
                               label: 'Accept',
                               onTap: _accept),
@@ -429,14 +482,14 @@ class _CallScreenState extends State<CallScreen> {
                               iconColor: _muted ? AppColors.slate : Colors.white,
                               label: _muted ? 'Unmute' : 'Mute',
                               onTap: _toggleMute),
-                          if (widget.video)
+                          if (_video)
                             _RoundBtn(
                                 icon: _camOff ? Icons.videocam_off_rounded : Icons.videocam_rounded,
                                 color: _camOff ? Colors.white : Colors.white24,
                                 iconColor: _camOff ? AppColors.slate : Colors.white,
                                 label: 'Camera',
                                 onTap: _toggleCam),
-                          if (widget.video)
+                          if (_video)
                             _RoundBtn(
                                 icon: Icons.cameraswitch_rounded,
                                 color: Colors.white24,
@@ -463,7 +516,7 @@ class _CallScreenState extends State<CallScreen> {
             ),
 
             // Local preview (picture-in-picture)
-            if (widget.video && _stream != null && !_camOff && _phase != _Phase.ended)
+            if (_video && _stream != null && !_camOff && _phase != _Phase.ended)
               Positioned(
                 right: 16,
                 top: MediaQuery.paddingOf(context).top + 16,

@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/theme.dart';
 import '../services/account_service.dart';
 import '../services/pair_state.dart';
 import '../services/social_service.dart';
+import '../services/notifications_service.dart';
+import '../widgets/user_avatar.dart';
 import 'account_screen.dart';
 import 'chat_screen.dart';
 
@@ -17,9 +21,11 @@ class FriendsScreen extends StatefulWidget {
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
 
-class _FriendsScreenState extends State<FriendsScreen> {
+class _FriendsScreenState extends State<FriendsScreen> with WidgetsBindingObserver {
   final _addCtrl = TextEditingController();
   bool _busy = false;
+  bool _photoBusy = false;
+  bool? _notifOn;
 
   @override
   void initState() {
@@ -27,10 +33,92 @@ class _FriendsScreenState extends State<FriendsScreen> {
     final s = context.read<SocialService>();
     s.refreshFriends();
     s.refreshInbox();
+    _checkNotif();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    if (s == AppLifecycleState.resumed) _checkNotif();
+  }
+
+  Future<void> _checkNotif() async {
+    final on = await NotificationsService.instance.enabled();
+    if (mounted) setState(() => _notifOn = on);
+  }
+
+  Future<void> _enableNotif() async {
+    final ok = await NotificationsService.instance.requestPermission();
+    await _checkNotif();
+    if (!mounted || ok && _notifOn != false) return;
+    // Already refused once — the phone only lets the user change it in Settings.
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Turn on notifications'),
+        content: const Text(
+            'Notifications are switched off for Umrah Trip. Open your phone Settings → Apps → Umrah Trip → Notifications (iPhone: Settings → Umrah Trip → Notifications) and allow them, so you never miss a call or message.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Later')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Open Settings')),
+        ],
+      ),
+    );
+    if (go == true) {
+      try {
+        await launchUrl(Uri.parse('app-settings:'));
+      } catch (_) {}
+    }
+  }
+
+  Future<void> _changePhoto(AccountService acct) async {
+    final src = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Choose from gallery'),
+              onTap: () => Navigator.pop(ctx, 'gallery')),
+          ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('Take a photo'),
+              onTap: () => Navigator.pop(ctx, 'camera')),
+          if (acct.avatar != null)
+            ListTile(
+                leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                title: const Text('Remove photo'),
+                onTap: () => Navigator.pop(ctx, 'remove')),
+        ]),
+      ),
+    );
+    if (src == null) return;
+    setState(() => _photoBusy = true);
+    try {
+      if (src == 'remove') {
+        final r = await acct.setAvatar(null);
+        if (mounted && !r.ok) _snack(r.error ?? 'Failed');
+        return;
+      }
+      final x = await ImagePicker().pickImage(
+          source: src == 'camera' ? ImageSource.camera : ImageSource.gallery,
+          maxWidth: 512,
+          maxHeight: 512,
+          imageQuality: 75,
+          preferredCameraDevice: CameraDevice.front);
+      if (x == null) return;
+      final r = await acct.setAvatar(await x.readAsBytes());
+      if (mounted) _snack(r.ok ? 'Profile photo updated' : (r.error ?? 'Upload failed'));
+    } catch (e) {
+      if (mounted) _snack('Could not open photos: $e');
+    } finally {
+      if (mounted) setState(() => _photoBusy = false);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _addCtrl.dispose();
     super.dispose();
   }
@@ -118,14 +206,45 @@ class _FriendsScreenState extends State<FriendsScreen> {
         onRefresh: () async {
           await social.refreshFriends();
           await social.refreshInbox();
+          await _checkNotif();
         },
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // My username card
+            if (_notifOn == false)
+              Card(
+                color: AppColors.gold.withValues(alpha: 0.18),
+                child: ListTile(
+                  leading: const Icon(Icons.notifications_active_rounded, color: AppColors.emerald),
+                  title: const Text('Turn on notifications',
+                      style: TextStyle(fontWeight: FontWeight.w800)),
+                  subtitle: const Text('So you see incoming calls and new messages.'),
+                  trailing: FilledButton(onPressed: _enableNotif, child: const Text('Allow')),
+                ),
+              ),
+            // My profile card (photo + username)
             Card(
               child: ListTile(
-                leading: const Icon(Icons.alternate_email_rounded, color: AppColors.emerald),
+                leading: GestureDetector(
+                  onTap: _photoBusy ? null : () => _changePhoto(acct),
+                  child: Stack(clipBehavior: Clip.none, children: [
+                    UserAvatar(name: acct.name ?? acct.email ?? '?', url: acct.avatar, radius: 24),
+                    Positioned(
+                      right: -2,
+                      bottom: -2,
+                      child: CircleAvatar(
+                        radius: 10,
+                        backgroundColor: AppColors.emerald,
+                        child: _photoBusy
+                            ? const SizedBox(
+                                width: 10,
+                                height: 10,
+                                child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white))
+                            : const Icon(Icons.camera_alt_rounded, size: 12, color: Colors.white),
+                      ),
+                    ),
+                  ]),
+                ),
                 title: Text(acct.username == null ? 'Set your username' : '@${acct.username}',
                     style: const TextStyle(fontWeight: FontWeight.w800)),
                 subtitle: Text(acct.username == null
@@ -199,7 +318,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               const _Header('Friend requests'),
               ...incoming.map((f) => Card(
                     child: ListTile(
-                      leading: _avatar(f.name),
+                      leading: UserAvatar(name: f.name, url: f.avatar),
                       title: Text(f.name, style: const TextStyle(fontWeight: FontWeight.w700)),
                       subtitle: Text(f.username != null ? '@${f.username}' : 'wants to be your friend'),
                       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -233,7 +352,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
                 final unread = social.unreadFor(f.thread) > 0;
                 return Card(
                   child: ListTile(
-                    leading: _avatar(f.name),
+                    leading: UserAvatar(name: f.name, url: f.avatar),
                     title: Text(f.name,
                         style: TextStyle(
                             fontWeight: unread ? FontWeight.w900 : FontWeight.w700)),
@@ -286,7 +405,7 @@ class _FriendsScreenState extends State<FriendsScreen> {
               const _Header('Sent requests'),
               ...outgoing.map((f) => Card(
                     child: ListTile(
-                      leading: _avatar(f.name),
+                      leading: UserAvatar(name: f.name, url: f.avatar),
                       title: Text(f.name),
                       subtitle: const Text('Waiting for them to accept'),
                       trailing: TextButton(
@@ -318,11 +437,6 @@ class _FriendsScreenState extends State<FriendsScreen> {
         ),
       );
 
-  Widget _avatar(String name) => CircleAvatar(
-        backgroundColor: AppColors.emerald,
-        child: Text(name.isEmpty ? '?' : name[0].toUpperCase(),
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-      );
 }
 
 class _Header extends StatelessWidget {

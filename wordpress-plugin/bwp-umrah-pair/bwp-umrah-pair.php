@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BWP Umrah Pair
  * Description: Umrah Trip app backend — user accounts with cloud backup/restore, friends, live chat and calls, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.5.0
+ * Version: 1.6.0
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.5.0');
+define('BWP_UMRAH_PAIR_VERSION', '1.6.0');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -44,6 +44,7 @@ function bwp_umrah_pair_install() {
         email VARCHAR(190) NOT NULL,
         username VARCHAR(40) NULL,
         name VARCHAR(80) NOT NULL DEFAULT '',
+        avatar VARCHAR(255) NULL,
         pass_hash VARCHAR(255) NOT NULL,
         tokens TEXT NOT NULL,
         data LONGTEXT NULL,
@@ -666,7 +667,7 @@ function bwp_ua_login(WP_REST_Request $req) {
     $token = bwp_ua_issue_token($row);
     $data = $row['data'] ? json_decode($row['data'], true) : null;
     return bwp_up_json([
-        'token' => $token, 'email' => $row['email'], 'name' => $row['name'], 'username' => $row['username'],
+        'token' => $token, 'email' => $row['email'], 'name' => $row['name'], 'username' => $row['username'], 'avatar' => $row['avatar'] ?? null,
         'data' => $data, 'data_updated' => (int) $row['data_updated'],
     ]);
 }
@@ -689,7 +690,7 @@ function bwp_ua_restore(WP_REST_Request $req) {
     $row = bwp_ua_find_by_token($req->get_param('token'));
     if (!$row) return bwp_up_err('Session expired — please sign in again', 401);
     return bwp_up_json([
-        'email' => $row['email'], 'name' => $row['name'],
+        'email' => $row['email'], 'name' => $row['name'], 'username' => $row['username'], 'avatar' => $row['avatar'] ?? null,
         'data' => $row['data'] ? json_decode($row['data'], true) : null,
         'data_updated' => (int) $row['data_updated'],
     ]);
@@ -770,8 +771,28 @@ function bwp_ua_admin_page() {
 function bwp_uf_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_friends'; }
 function bwp_uc_table() { global $wpdb; return $wpdb->prefix . 'bwp_umrah_messages'; }
 
+/** Validates a base64 JPEG/PNG and stores it in uploads. Returns URL or error response. */
+function bwp_up_store_image($b64, $prefix) {
+    if ($b64 === '' || strlen($b64) > BWP_UMRAH_PAIR_MAX_PHOTO_B64) return bwp_up_err('Image missing or too large (max ~900 KB)');
+    $bytes = base64_decode($b64, true);
+    if ($bytes === false) return bwp_up_err('Invalid image data');
+    $isJpeg = substr($bytes, 0, 3) === "\xFF\xD8\xFF";
+    $isPng = substr($bytes, 0, 8) === "\x89PNG\r\n\x1a\n";
+    if (!$isJpeg && !$isPng) return bwp_up_err('Only JPEG/PNG photos are accepted');
+    $up = wp_upload_bits($prefix . '-' . bwp_up_now() . '-' . wp_generate_password(6, false, false) . ($isJpeg ? '.jpg' : '.png'), null, $bytes);
+    if (!empty($up['error'])) return bwp_up_err('Upload failed: ' . $up['error'], 500);
+    return strpos(home_url(), 'https://') === 0 ? set_url_scheme($up['url'], 'https') : $up['url'];
+}
+
+/** Avatar URL for a sender key like "u:12" (account users only). */
+function bwp_up_avatar_for_key($key) {
+    global $wpdb;
+    if (strpos((string) $key, 'u:') !== 0) return null;
+    return $wpdb->get_var($wpdb->prepare('SELECT avatar FROM ' . bwp_ua_table() . ' WHERE id = %d', (int) substr($key, 2)));
+}
+
 function bwp_ua_public($row) {
-    return ['id' => (int) $row['id'], 'name' => $row['name'], 'username' => $row['username']];
+    return ['id' => (int) $row['id'], 'name' => $row['name'], 'username' => $row['username'], 'avatar' => $row['avatar'] ?? null];
 }
 
 function bwp_ua_profile(WP_REST_Request $req) {
@@ -789,9 +810,19 @@ function bwp_ua_profile(WP_REST_Request $req) {
     }
     $n = $req->get_param('name');
     if ($n !== null) $upd['name'] = bwp_up_sanitize_name($n);
+    $av = $req->get_param('avatar');
+    if ($av !== null) {
+        if ($av === '') {
+            $upd['avatar'] = null;
+        } else {
+            $url = bwp_up_store_image((string) $av, 'umrah-avatars/u' . (int) $me['id']);
+            if ($url instanceof WP_REST_Response) return $url;
+            $upd['avatar'] = $url;
+        }
+    }
     if ($upd) $wpdb->update(bwp_ua_table(), $upd, ['id' => $me['id']]);
     $me = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . bwp_ua_table() . ' WHERE id = %d', $me['id']), ARRAY_A);
-    return bwp_up_json(['email' => $me['email'], 'name' => $me['name'], 'username' => $me['username']]);
+    return bwp_up_json(['email' => $me['email'], 'name' => $me['name'], 'username' => $me['username'], 'avatar' => $me['avatar']]);
 }
 
 function bwp_uf_row_for($me_id, $fid) {
@@ -811,7 +842,7 @@ function bwp_uf_list(WP_REST_Request $req) {
     $out = [];
     foreach ($rows as $f) {
         $other_id = ((int) $f['a_id'] === (int) $me['id']) ? (int) $f['b_id'] : (int) $f['a_id'];
-        $o = $wpdb->get_row($wpdb->prepare('SELECT id, name, username FROM ' . bwp_ua_table() . ' WHERE id = %d', $other_id), ARRAY_A);
+        $o = $wpdb->get_row($wpdb->prepare('SELECT id, name, username, avatar FROM ' . bwp_ua_table() . ' WHERE id = %d', $other_id), ARRAY_A);
         if (!$o) continue;
         $out[] = [
             'fid' => (int) $f['id'],
@@ -976,6 +1007,8 @@ function bwp_uc_inbox(WP_REST_Request $req) {
     global $wpdb;
     $out = [];
     $pending = 0;
+    $mk = '';
+    $fids = [];
     $tok = (string) $req->get_param('token');
     if ($tok !== '') {
         $me = bwp_ua_find_by_token($tok);
@@ -1002,7 +1035,27 @@ function bwp_uc_inbox(WP_REST_Request $req) {
             if ($m) $out[$pt] = bwp_uc_format($m, $who[0]);
         }
     }
-    return bwp_up_json(['latest' => (object) $out, 'pending_requests' => $pending]);
+    // Calls ringing for me right now (server clock decides freshness).
+    $ringing = [];
+    $threads = [];
+    if (!empty($mk)) foreach ($fids as $f) $threads['dm:' . (int) $f] = $mk;
+    if (strpos($pt, 'pair:') === 0 && isset($who) && !($who instanceof WP_REST_Response)) $threads[$pt] = $who[0];
+    if ($threads) {
+        $in = implode(',', array_fill(0, count($threads), '%s'));
+        $rows = $wpdb->get_results($wpdb->prepare(
+            'SELECT * FROM ' . bwp_ucall_table() . " WHERE status = 'ringing' AND created >= %d AND thread IN ($in) ORDER BY id DESC LIMIT 5",
+            array_merge([bwp_up_now() - 45], array_keys($threads))
+        ), ARRAY_A);
+        foreach ($rows as $c) {
+            if ($c['caller_key'] === $threads[$c['thread']]) continue; // my own call
+            $ringing[] = [
+                'thread' => $c['thread'], 'call_id' => $c['call_id'], 'video' => (bool) $c['video'],
+                'caller_name' => $c['caller_name'], 'caller_avatar' => bwp_up_avatar_for_key($c['caller_key']),
+                'age' => bwp_up_now() - (int) $c['created'],
+            ];
+        }
+    }
+    return bwp_up_json(['latest' => (object) $out, 'pending_requests' => $pending, 'ringing' => $ringing, 'now' => bwp_up_now()]);
 }
 
 // Light clean-up: chat messages older than 120 days.
@@ -1067,6 +1120,18 @@ function bwp_ucall_start(WP_REST_Request $req) {
     $offer = $req->get_param('offer');
     if (!is_array($offer) || empty($offer['sdp'])) return bwp_up_err('Missing call offer');
     $video = (bool) $req->get_param('video');
+    // Both pressed "call" at the same moment → join the other person's call.
+    $theirs = $wpdb->get_row($wpdb->prepare(
+        'SELECT * FROM ' . bwp_ucall_table() . " WHERE thread = %s AND status = 'ringing' AND caller_key <> %s AND created >= %d ORDER BY id DESC LIMIT 1",
+        $thread, $who[0], bwp_up_now() - 45
+    ), ARRAY_A);
+    if ($theirs) return bwp_up_json(['join' => $theirs['call_id'], 'video' => (bool) $theirs['video']]);
+    // Already talking in this chat (e.g. on another device) → busy.
+    $live = $wpdb->get_var($wpdb->prepare(
+        'SELECT COUNT(*) FROM ' . bwp_ucall_table() . " WHERE thread = %s AND status = 'active' AND updated >= %d",
+        $thread, bwp_up_now() - 90
+    ));
+    if ($live) return bwp_up_json(['busy' => true]);
     $call_id = strtolower(wp_generate_password(16, false, false));
     $now = bwp_up_now();
     $wpdb->insert(bwp_ucall_table(), [
@@ -1084,11 +1149,15 @@ function bwp_ucall_start(WP_REST_Request $req) {
 }
 
 function bwp_ucall_get(WP_REST_Request $req) {
+    global $wpdb;
     $thread = bwp_ucall_thread($req);
     $who = bwp_uc_auth($req, $thread);
     if ($who instanceof WP_REST_Response) return $who;
     $c = bwp_ucall_load($thread, (string) $req->get_param('call_id'));
     if (!$c) return bwp_up_err('Call not found', 404);
+    if ($c['status'] === 'active' && bwp_up_now() - (int) $c['updated'] > 20) { // heartbeat for "busy"
+        $wpdb->update(bwp_ucall_table(), ['updated' => bwp_up_now()], ['id' => $c['id']]);
+    }
     return bwp_up_json(['call' => bwp_ucall_state($c, $who[0])]);
 }
 
@@ -1117,7 +1186,7 @@ function bwp_ucall_end(WP_REST_Request $req) {
     if ($who instanceof WP_REST_Response) return $who;
     $c = bwp_ucall_load($thread, (string) $req->get_param('call_id'));
     if (!$c) return bwp_up_err('Call not found', 404);
-    $st = $req->get_param('status') === 'declined' ? 'declined' : 'ended';
+    $st = in_array($req->get_param('status'), ['declined', 'busy'], true) ? $req->get_param('status') : 'ended';
     $wpdb->update(bwp_ucall_table(), ['status' => $st, 'updated' => bwp_up_now()], ['id' => $c['id']]);
     return bwp_up_json([]);
 }

@@ -18,6 +18,7 @@ class Friend {
   final int userId;
   final String name;
   final String? username;
+  final String? avatar;
   final String thread;
   const Friend({
     required this.fid,
@@ -26,6 +27,7 @@ class Friend {
     required this.userId,
     required this.name,
     this.username,
+    this.avatar,
     required this.thread,
   });
   bool get accepted => status == 'accepted';
@@ -55,7 +57,8 @@ class IncomingCall {
   final String callId;
   final String callerName;
   final bool video;
-  const IncomingCall(this.thread, this.callId, this.callerName, this.video);
+  final String? avatar;
+  const IncomingCall(this.thread, this.callId, this.callerName, this.video, [this.avatar]);
 }
 
 class SocialResult {
@@ -87,6 +90,16 @@ class SocialService extends ChangeNotifier {
   final StreamController<IncomingCall> incomingCalls = StreamController.broadcast();
   final Set<String> _announcedCalls = {};
   String? activeThread; // the chat currently open (no alerts for it)
+  /// True while a call screen is open — new incoming calls get "busy".
+  bool inCall = false;
+
+  /// Photo of whoever is on the other side of [thread] (friends only).
+  String? avatarFor(String thread) {
+    for (final f in friends) {
+      if (f.thread == thread) return f.avatar;
+    }
+    return null;
+  }
   Timer? _timer;
 
   String get _base =>
@@ -120,7 +133,7 @@ class SocialService extends ChangeNotifier {
     final active = account.loggedIn || pair.paired;
     if (active) {
       if (_timer == null) {
-        _timer = Timer.periodic(const Duration(seconds: 8), (_) => refreshInbox());
+        _timer = Timer.periodic(const Duration(seconds: 4), (_) => refreshInbox());
         refreshFriends();
         refreshInbox();
       }
@@ -158,7 +171,7 @@ class SocialService extends ChangeNotifier {
       try {
         j = jsonDecode(r.body) as Map<String, dynamic>;
       } catch (_) {
-        return SocialResult(false, {}, 'Server HTTP ${r.statusCode} (is plugin v1.4 installed?)');
+        return SocialResult(false, {}, 'Server HTTP ${r.statusCode} (is plugin v1.6 installed?)');
       }
       if (r.statusCode == 200 && j['ok'] == true) return SocialResult(true, j);
       return SocialResult(false, j, '${j['error'] ?? j['message'] ?? 'HTTP ${r.statusCode}'}');
@@ -184,6 +197,7 @@ class SocialService extends ChangeNotifier {
               userId: int.tryParse('${u['id']}') ?? 0,
               name: '${u['name'] ?? ''}',
               username: u['username']?.toString(),
+              avatar: (u['avatar'] ?? '').toString().isEmpty ? null : u['avatar'].toString(),
               thread: '${m['thread']}',
             );
           }).toList()
@@ -271,9 +285,14 @@ class SocialService extends ChangeNotifier {
   Future<SocialResult> callAnswer(String thread, String callId, Map<String, dynamic> answer) =>
       _post('call/answer', {'thread': thread, 'call_id': callId, 'answer': answer, ..._auth(thread)});
 
-  Future<SocialResult> callEnd(String thread, String callId, {bool declined = false}) => _post(
-      'call/end',
-      {'thread': thread, 'call_id': callId, 'status': declined ? 'declined' : 'ended', ..._auth(thread)});
+  Future<SocialResult> callEnd(String thread, String callId,
+          {bool declined = false, bool busy = false}) =>
+      _post('call/end', {
+        'thread': thread,
+        'call_id': callId,
+        'status': busy ? 'busy' : (declined ? 'declined' : 'ended'),
+        ..._auth(thread),
+      });
 
   void markCallHandled(String callId) => _announcedCalls.add(callId);
 
@@ -305,6 +324,22 @@ class SocialService extends ChangeNotifier {
       if (pair.paired) 'ptoken': pair.token,
     });
     if (!r.ok) return;
+    // Calls ringing for me (v1.6+: freshness decided by the server clock).
+    final ringing = r.data['ringing'];
+    final serverRings = ringing is List;
+    if (ringing is List) {
+      for (final raw in ringing.whereType<Map>()) {
+        final c = Map<String, dynamic>.from(raw);
+        final callId = '${c['call_id'] ?? ''}';
+        if (callId.isEmpty || !_announcedCalls.add(callId)) continue;
+        final video = c['video'] == true;
+        final av = '${c['caller_avatar'] ?? ''}';
+        final name = '${c['caller_name'] ?? ''}';
+        incomingCalls.add(IncomingCall('${c['thread']}', callId, name, video, av.isEmpty ? null : av));
+        NotificationsService.instance.showCall(
+            video ? '📹 Incoming video call' : '📞 Incoming voice call', '$name is calling you');
+      }
+    }
     final prevPending = pendingRequests;
     pendingRequests = int.tryParse('${r.data['pending_requests']}') ?? 0;
     final latest = r.data['latest'];
@@ -316,15 +351,16 @@ class SocialService extends ChangeNotifier {
         _latestId['$thread'] = m.id;
         final isNew = m.id > before && (before != 0 || m.type == 'call');
         if (isNew && !m.mine && (activeThread != thread || m.type == 'call')) {
-          if (m.type == 'call' &&
-              DateTime.now().difference(m.at) < const Duration(minutes: 1)) {
+          if (m.type == 'call') {
+            if (serverRings) return; // handled above
+            if (DateTime.now().difference(m.at).abs() > const Duration(minutes: 1)) return;
             final b = m.body is Map ? Map<String, dynamic>.from(m.body as Map) : <String, dynamic>{};
             final video = b['video'] == true;
             final callId = '${b['call_id'] ?? ''}';
             if (callId.isNotEmpty && _announcedCalls.add(callId)) {
               incomingCalls.add(IncomingCall('$thread', callId, m.name, video));
             }
-            NotificationsService.instance.showAnnouncement(
+            NotificationsService.instance.showCall(
                 video ? '📹 Incoming video call' : '📞 Incoming voice call',
                 '${m.name} is calling you');
           } else {

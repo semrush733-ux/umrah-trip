@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -29,6 +30,7 @@ class AccountService extends ChangeNotifier {
   String? email;
   String? name;
   String? username;
+  String? avatar; // profile photo URL
   DateTime? lastBackupAt;
   bool backingUp = false;
   String? lastError;
@@ -48,6 +50,7 @@ class AccountService extends ChangeNotifier {
     email = p.getString('acct_email');
     name = p.getString('acct_name');
     username = p.getString('acct_username');
+    avatar = p.getString('acct_avatar');
     final lb = p.getInt('acct_last_backup');
     lastBackupAt = lb == null ? null : DateTime.fromMillisecondsSinceEpoch(lb);
     app.addListener(_onDataChanged);
@@ -93,7 +96,16 @@ class AccountService extends ChangeNotifier {
     email = j['email']?.toString() ?? email;
     name = j['name']?.toString() ?? name;
     if (j.containsKey('username')) username = j['username']?.toString();
+    if (j.containsKey('avatar')) {
+      final a = j['avatar']?.toString();
+      avatar = (a == null || a.isEmpty) ? null : a;
+    }
     final p = await SharedPreferences.getInstance();
+    if (avatar != null) {
+      await p.setString('acct_avatar', avatar!);
+    } else {
+      await p.remove('acct_avatar');
+    }
     if (username != null) {
       await p.setString('acct_username', username!);
     } else {
@@ -110,6 +122,7 @@ class AccountService extends ChangeNotifier {
     email = null;
     name = null;
     username = null;
+    avatar = null;
     lastBackupAt = null;
     _lastUploadedHash = null;
     final p = await SharedPreferences.getInstance();
@@ -117,6 +130,7 @@ class AccountService extends ChangeNotifier {
     await p.remove('acct_email');
     await p.remove('acct_name');
     await p.remove('acct_username');
+    await p.remove('acct_avatar');
     await p.remove('acct_last_backup');
     notifyListeners();
   }
@@ -130,6 +144,26 @@ class AccountService extends ChangeNotifier {
     });
     if (r.ok) await _saveSession(r.data);
     return r;
+  }
+
+  /// Uploads a new profile photo (JPEG), or removes it when [jpeg] is null.
+  Future<AccountResult> setAvatar(Uint8List? jpeg) async {
+    final r = await _post('profile', {'token': token, 'avatar': jpeg == null ? '' : base64Encode(jpeg)},
+        timeout: const Duration(seconds: 60));
+    if (r.ok) {
+      if (!r.data.containsKey('avatar')) {
+        return const AccountResult(false, {}, 'Please update the website plugin to v1.6 for profile photos');
+      }
+      await _saveSession(r.data);
+    }
+    return r;
+  }
+
+  /// Refreshes name/username/photo from the server.
+  Future<void> refreshProfile() async {
+    if (!loggedIn) return;
+    final r = await _post('profile', {'token': token});
+    if (r.ok) await _saveSession(r.data);
   }
 
   // ---------------- public API ----------------

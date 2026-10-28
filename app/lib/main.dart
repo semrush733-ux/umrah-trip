@@ -45,12 +45,22 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
     socialService = SocialService(accountService, pairState);
     siteService.addListener(_onSiteUpdate);
     socialService.incomingCalls.stream.listen((c) {
+      if (socialService.inCall) {
+        // Already on a call → tell the caller we're busy.
+        socialService.callEnd(c.thread, c.callId, busy: true);
+        return;
+      }
       final nav = appNavigatorKey.currentState;
       if (nav == null) return;
+      socialService.inCall = true; // block duplicates until the screen opens
       nav.push(MaterialPageRoute(
           fullscreenDialog: true,
           builder: (_) => CallScreen.incoming(
-              thread: c.thread, peerName: c.callerName, video: c.video, callId: c.callId)));
+              thread: c.thread,
+              peerName: c.callerName,
+              video: c.video,
+              peerAvatar: c.avatar ?? socialService.avatarFor(c.thread),
+              callId: c.callId)));
     });
     state.init().catchError((e) {
       // Never let a startup error strand the user on the splash screen.
@@ -64,9 +74,15 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
         siteService.init();
       } catch (_) {}
       try {
-        NotificationsService.instance.init();
+        // Ask for notification access from inside the app (calls & chats).
+        NotificationsService.instance.init().then((_) => Future.delayed(
+            const Duration(seconds: 3), NotificationsService.instance.requestPermission));
       } catch (_) {}
-      accountService.init().then((_) => socialService.init()).catchError((_) {});
+      accountService
+          .init()
+          .then((_) => socialService.init())
+          .then((_) => accountService.refreshProfile())
+          .catchError((_) {});
     });
   }
 

@@ -42,6 +42,8 @@ def patch_android_manifest() -> None:
         '<uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>',
         '<uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>',
         '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>',
+        '<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>',
+        '<uses-permission android:name="android.permission.WAKE_LOCK"/>',
     ]
     for p in perms:
         if p.split('"')[1] not in text:

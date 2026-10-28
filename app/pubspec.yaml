@@ -32,6 +32,7 @@ dependencies:
   flutter_map: ^8.1.1
   latlong2: ^0.9.1
   flutter_webrtc: ^0.12.12
+  audioplayers: ^6.1.0
 
 dev_dependencies:
   flutter_test:
@@ -55,3 +56,5 @@ flutter:
     - assets/data/duas.json
     - assets/images/logo.png
     - assets/images/sponsor_binmukhtar.png
+    - assets/sounds/ringback.wav
+    - assets/sounds/ringtone.wav
