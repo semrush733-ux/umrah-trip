@@ -24,15 +24,15 @@ class _AiScreenState extends State<AiScreen> {
   final _scroll = ScrollController();
   final List<_Msg> _messages = [
     const _Msg(false,
-        'Assalamu alaikum! 🌙 Main aapka Umrah safar assistant hun. Ziyarat, routes, auqat, ya Umrah ke masail — kuch bhi poochein.\n(Deeni masail mein hamesha apne alim se tasdeeq karein.)'),
+        'Assalamu alaikum! 🌙 I am your Umrah travel assistant. Ask me anything about ziyarat, routes, timings or Umrah rulings.\n(For religious rulings, please always confirm with a qualified scholar.)'),
   ];
   bool _busy = false;
 
   static const _suggestions = [
-    'Masjid Quba kab jana behtar hai?',
-    'Madinah mein 1 din ka ziyarat plan banao',
-    'Tawaf ke 7 chakkar ka tareeqa?',
-    'Taif day trip kaise karein?',
+    'When is the best time to visit Masjid Quba?',
+    'Plan a one-day ziyarat itinerary in Madinah',
+    'How do I perform the seven circuits of Tawaf?',
+    'How should I plan a day trip to Taif?',
   ];
 
   Future<void> _send([String? preset]) async {
@@ -49,7 +49,7 @@ class _AiScreenState extends State<AiScreen> {
     final ctx =
         'User is an Umrah pilgrim using the Umrah Trip app. Active city: ${app.activeRegion}. '
         'Planned visits: ${app.planner.counters().planned}, visited: ${app.planner.counters().visited}. '
-        'Answer briefly and practically in the user\'s language (Urdu/Roman Urdu/English). '
+        'Answer briefly and practically in the user\'s language (British English unless they write in Urdu). '
         'For fiqh rulings advise confirming with a scholar; never invent facts, fees or times.';
     final answer = await site.askAi(q, context: ctx);
     if (!mounted) return;
@@ -82,7 +82,7 @@ class _AiScreenState extends State<AiScreen> {
               color: Colors.orange.withValues(alpha: 0.15),
               padding: const EdgeInsets.all(10),
               child: const Text(
-                'AI abhi website par configure nahi hua (admin → Umrah Trip App → AI API key). Key lagte hi ye chat chal jayegi.',
+                'AI has not been set up on the website yet (Admin → Umrah Trip App → AI API key). The chat will work as soon as the key is added.',
                 style: TextStyle(fontSize: 12),
               ),
             ),
@@ -101,7 +101,7 @@ class _AiScreenState extends State<AiScreen> {
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2)),
                       SizedBox(width: 10),
-                      Text('Soch raha hun…'),
+                      Text('Thinking…'),
                     ]),
                   );
                 }
@@ -164,7 +164,7 @@ class _AiScreenState extends State<AiScreen> {
                       controller: _ctrl,
                       onSubmitted: (_) => _send(),
                       decoration: InputDecoration(
-                        hintText: 'Apna sawal likhein…',
+                        hintText: 'Type your question…',
                         filled: true,
                         border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(24),

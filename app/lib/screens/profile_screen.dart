@@ -68,11 +68,11 @@ class ProfileScreen extends StatelessWidget {
                     acct.loggedIn ? Icons.cloud_done_rounded : Icons.account_circle_rounded,
                     color: acct.loggedIn ? Colors.green : AppColors.emerald,
                     size: 30),
-                title: Text(acct.loggedIn ? 'My Account' : 'Login / Sign up',
+                title: Text(acct.loggedIn ? 'My Account' : 'Sign in / Sign up',
                     style: const TextStyle(fontWeight: FontWeight.w800)),
                 subtitle: Text(acct.loggedIn
-                    ? 'Data cloud par mehfooz — reinstall par bhi wapas'
-                    : 'Account banayen taake data kabhi zaya na ho'),
+                    ? 'Your data is safe in the cloud — restored even after reinstalling'
+                    : 'Create an account so your data is never lost'),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => Navigator.of(context)
                     .push(MaterialPageRoute(builder: (_) => const AccountScreen())),

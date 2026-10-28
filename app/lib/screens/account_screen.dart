@@ -36,7 +36,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final acct = context.read<AccountService>();
     final app = context.read<AppState>();
     if (_email.text.trim().isEmpty || _pass.text.isEmpty) {
-      _snack('Email aur password likhein');
+      _snack('Please enter your email and password');
       return;
     }
     setState(() => _busy = true);
@@ -47,26 +47,26 @@ class _AccountScreenState extends State<AccountScreen> {
             _email.text,
             _pass.text);
         if (!mounted) return;
-        _snack(r.ok ? 'Account ban gaya ✓ — data cloud par mehfooz' : (r.error ?? 'Error'));
+        _snack(r.ok ? 'Account created ✓ — your data is safe in the cloud' : (r.error ?? 'Error'));
         return;
       }
 
       final r = await acct.login(_email.text, _pass.text);
       if (!mounted) return;
       if (!r.ok) {
-        _snack(r.error ?? 'Login failed');
+        _snack(r.error ?? 'Sign-in failed');
         return;
       }
       final cloud = r.data['data'];
       final hasCloud = cloud is Map && cloud.isNotEmpty;
       if (!hasCloud) {
         await acct.keepLocal();
-        if (mounted) _snack('Login ho gaya ✓');
+        if (mounted) _snack('Signed in ✓');
         return;
       }
       if (!app.hasLocalData) {
         await acct.applyCloud(Map<String, dynamic>.from(cloud));
-        if (mounted) _snack('Login ho gaya ✓ — aapka sara data wapas aa gaya');
+        if (mounted) _snack('Signed in ✓ — all your data has been restored');
         return;
       }
       // Both have data → let the user choose.
@@ -79,26 +79,26 @@ class _AccountScreenState extends State<AccountScreen> {
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
-          title: const Text('Kaunsa data rakhna hai?'),
+          title: const Text('Which data would you like to keep?'),
           content: Text(
-              'Aapke account mein cloud backup mojood hai${when.isEmpty ? '' : ' ($when)'}, '
-              'aur is phone par bhi kuch data hai.'),
+              'Your account has a cloud backup${when.isEmpty ? '' : ' ($when)'}, '
+              'and this phone also has some data.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, 'local'),
-                child: const Text('Is phone ka rakhein')),
+                child: const Text('Keep this phone\'s data')),
             FilledButton(
                 onPressed: () => Navigator.pop(ctx, 'cloud'),
-                child: const Text('Cloud se restore')),
+                child: const Text('Restore from cloud')),
           ],
         ),
       );
       if (choice == 'cloud') {
         await acct.applyCloud(Map<String, dynamic>.from(cloud));
-        if (mounted) _snack('Restore ho gaya ✓');
+        if (mounted) _snack('Restored ✓');
       } else {
         await acct.keepLocal();
-        if (mounted) _snack('Is phone ka data cloud par save ho gaya ✓');
+        if (mounted) _snack('This phone\'s data has been saved to the cloud ✓');
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -109,7 +109,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Widget build(BuildContext context) {
     final acct = context.watch<AccountService>();
     return Scaffold(
-      appBar: AppBar(title: Text(acct.loggedIn ? 'My Account' : 'Login / Sign up')),
+      appBar: AppBar(title: Text(acct.loggedIn ? 'My Account' : 'Sign in / Sign up')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: acct.loggedIn ? _accountView(acct) : _authForm(),
@@ -127,15 +127,15 @@ class _AccountScreenState extends State<AccountScreen> {
         const SizedBox(height: 14),
         Text(
           _registerMode
-              ? 'Account banayen — aapka trip, visits, notes aur pairing hamesha mehfooz rahenge, app dobara install karne par bhi.'
-              : 'Login karein — aapka sara data wapas aa jayega.',
+              ? 'Create an account — your trip, visits, notes and pairing stay safe, even if you reinstall the app.'
+              : 'Sign in — all your data will be restored.',
           textAlign: TextAlign.center,
           style: const TextStyle(height: 1.5),
         ),
         const SizedBox(height: 18),
         SegmentedButton<bool>(
           segments: const [
-            ButtonSegment(value: false, label: Text('Login'), icon: Icon(Icons.login_rounded)),
+            ButtonSegment(value: false, label: Text('Sign in'), icon: Icon(Icons.login_rounded)),
             ButtonSegment(
                 value: true, label: Text('Sign up'), icon: Icon(Icons.person_add_rounded)),
           ],
@@ -148,7 +148,7 @@ class _AccountScreenState extends State<AccountScreen> {
             controller: _name,
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(
-                labelText: 'Naam',
+                labelText: 'Name',
                 prefixIcon: Icon(Icons.person_rounded),
                 border: OutlineInputBorder()),
           ),
@@ -168,7 +168,7 @@ class _AccountScreenState extends State<AccountScreen> {
           controller: _pass,
           obscureText: !_showPass,
           decoration: InputDecoration(
-            labelText: 'Password (kam az kam 6)',
+            labelText: 'Password (at least 6 characters)',
             prefixIcon: const Icon(Icons.lock_rounded),
             border: const OutlineInputBorder(),
             suffixIcon: IconButton(
@@ -184,11 +184,11 @@ class _AccountScreenState extends State<AccountScreen> {
           child: _busy
               ? const SizedBox(
                   width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5))
-              : Text(_registerMode ? 'Account banayen' : 'Login'),
+              : Text(_registerMode ? 'Create account' : 'Sign in'),
         ),
         const SizedBox(height: 14),
         Text(
-          'Account ke baghair bhi app poori chalti hai (Guest mode). Password bhool jayen to admin se reset karwa sakte hain.',
+          'The app works fully without an account (guest mode). If you forget your password, the administrator can reset it.',
           textAlign: TextAlign.center,
           style: TextStyle(
               fontSize: 12,
@@ -241,12 +241,12 @@ class _AccountScreenState extends State<AccountScreen> {
                 acct.backingUp ? Icons.cloud_upload_rounded : Icons.cloud_done_rounded,
                 color: acct.lastError == null ? Colors.green : Colors.orange),
             title: Text(acct.backingUp
-                ? 'Backup ho raha hai…'
+                ? 'Backing up…'
                 : acct.lastBackupAt == null
-                    ? 'Abhi backup nahi hua'
+                    ? 'No backup yet'
                     : 'Last backup: ${DateFormat('d MMM, HH:mm').format(acct.lastBackupAt!)}'),
             subtitle: Text(acct.lastError ??
-                'Har tabdeeli khud-ba-khud cloud par save hoti hai (trip, visits, notes, favourites, kharche, hotel, settings, pairing).'),
+                'Every change is saved to the cloud automatically (trip, visits, notes, favourites, expenses, hotel, settings, pairing).'),
           ),
         ),
         const SizedBox(height: 10),
@@ -261,7 +261,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         final ok = await acct.backupNow(force: true);
                         if (mounted) {
                           setState(() => _busy = false);
-                          _snack(ok ? 'Backup ho gaya ✓' : (acct.lastError ?? 'Failed'));
+                          _snack(ok ? 'Backed up ✓' : (acct.lastError ?? 'Failed'));
                         }
                       },
                 icon: const Icon(Icons.cloud_upload_rounded),
@@ -278,9 +278,9 @@ class _AccountScreenState extends State<AccountScreen> {
                         final sure = await showDialog<bool>(
                           context: context,
                           builder: (ctx) => AlertDialog(
-                            title: const Text('Cloud se restore?'),
+                            title: const Text('Restore from cloud?'),
                             content: const Text(
-                                'Is phone ka maujooda data cloud backup se badal diya jayega.'),
+                                'The data currently on this phone will be replaced by the cloud backup.'),
                             actions: [
                               TextButton(
                                   onPressed: () => Navigator.pop(ctx, false),
@@ -296,7 +296,7 @@ class _AccountScreenState extends State<AccountScreen> {
                         final ok = await acct.restoreFromCloud();
                         if (mounted) {
                           setState(() => _busy = false);
-                          _snack(ok ? 'Restore ho gaya ✓' : (acct.lastError ?? 'Failed'));
+                          _snack(ok ? 'Restored ✓' : (acct.lastError ?? 'Failed'));
                         }
                       },
                 icon: const Icon(Icons.cloud_download_rounded),
@@ -314,18 +314,18 @@ class _AccountScreenState extends State<AccountScreen> {
                   await acct.logout();
                   if (mounted) {
                     setState(() => _busy = false);
-                    _snack('Logout ho gaya (data is phone par bhi mojood hai)');
+                    _snack('Signed out (your data is still on this phone)');
                   }
                 },
           icon: const Icon(Icons.logout_rounded),
-          label: const Text('Logout'),
+          label: const Text('Sign out'),
         ),
         const SizedBox(height: 8),
         TextButton.icon(
           style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
           onPressed: _busy ? null : () => _deleteAccount(acct),
           icon: const Icon(Icons.delete_forever_rounded),
-          label: const Text('Account delete karein'),
+          label: const Text('Delete account'),
         ),
       ];
 
@@ -334,17 +334,17 @@ class _AccountScreenState extends State<AccountScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Account hamesha ke liye delete?'),
+        title: const Text('Permanently delete your account?'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Cloud backup mita diya jayega. Is phone ka data rahega.'),
+            const Text('Your cloud backup will be erased. The data on this phone will remain.'),
             const SizedBox(height: 12),
             TextField(
               controller: ctrl,
               obscureText: true,
               decoration: const InputDecoration(
-                  labelText: 'Password confirm', border: OutlineInputBorder()),
+                  labelText: 'Confirm password', border: OutlineInputBorder()),
             ),
           ],
         ),
@@ -362,7 +362,7 @@ class _AccountScreenState extends State<AccountScreen> {
     final r = await acct.deleteAccount(ctrl.text);
     if (mounted) {
       setState(() => _busy = false);
-      _snack(r.ok ? 'Account delete ho gaya' : (r.error ?? 'Failed'));
+      _snack(r.ok ? 'Account deleted' : (r.error ?? 'Failed'));
     }
   }
 }

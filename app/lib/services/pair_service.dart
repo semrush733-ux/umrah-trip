@@ -149,17 +149,17 @@ class PairService {
         } else {
           sb.writeln('⚠️ ${j['message'] ?? j['error'] ?? j['code'] ?? 'unexpected reply'}');
           if ('${j['code']}' == 'rest_no_route') {
-            sb.writeln('→ Plugin activate nahi / purana hai, ya Permalinks "Plain" hain.');
+            sb.writeln('→ The plugin is not active or is outdated, or Permalinks are set to "Plain".');
           }
         }
       } catch (_) {
         final s = r.body.replaceAll(RegExp(r'<[^>]+>'), ' ').trim();
         sb.writeln('⚠️ Not JSON: ${s.substring(0, s.length > 140 ? 140 : s.length)}');
-        sb.writeln('→ Hosting firewall / security plugin REST API block kar raha hai.');
+        sb.writeln('→ A hosting firewall or security plugin is blocking the REST API.');
       }
     } catch (e) {
       sb.writeln('❌ Network: $e');
-      sb.writeln('→ Internet / DNS / SSL check karein.');
+      sb.writeln('→ Please check the internet connection, DNS and SSL.');
     }
     return sb.toString();
   }

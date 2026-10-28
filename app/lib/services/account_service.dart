@@ -73,7 +73,7 @@ class AccountService extends ChangeNotifier {
       try {
         j = jsonDecode(r.body) as Map<String, dynamic>;
       } catch (_) {
-        return AccountResult(false, {}, 'Server HTTP ${r.statusCode} (plugin v1.3 install hai?)');
+        return AccountResult(false, {}, 'Server HTTP ${r.statusCode} (is plugin v1.3 installed on the website?)');
       }
       if (r.statusCode == 200 && j['ok'] == true) return AccountResult(true, j);
       final msg = j['error'] ?? j['message'] ?? 'HTTP ${r.statusCode}';
@@ -82,7 +82,7 @@ class AccountService extends ChangeNotifier {
       }
       return AccountResult(false, j, '$msg');
     } catch (e) {
-      return AccountResult(false, {}, 'Internet/Server problem: $e');
+      return AccountResult(false, {}, 'Internet or server problem: $e');
     }
   }
 
@@ -164,7 +164,7 @@ class AccountService extends ChangeNotifier {
       await applyCloud(Map<String, dynamic>.from(d));
       return true;
     }
-    lastError = 'Cloud par abhi koi backup nahi';
+    lastError = 'There is no cloud backup yet.';
     notifyListeners();
     return false;
   }

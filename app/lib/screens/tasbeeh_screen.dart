@@ -107,7 +107,7 @@ class _TasbeehScreenState extends State<TasbeehScreen> {
           ),
           const SizedBox(height: 8),
           if (_mode == _Mode.tasbeeh)
-            Text('33 par halki vibration — SubhanAllah · Alhamdulillah · Allahu Akbar',
+            Text('A gentle vibration every 33 — SubhanAllah · Alhamdulillah · Allahu Akbar',
                 style: TextStyle(
                     fontSize: 12,
                     color:

@@ -44,13 +44,13 @@ class _TransportScreenState extends State<TransportScreen> {
               'Sponsor WhatsApp number is not set yet (website admin → Umrah Trip App settings).')));
       return;
     }
-    final msg = Uri.encodeComponent('Assalamu alaikum Bin-Mukhtar Travels 🌙\n'
-        'Umrah Trip app se request:\n'
+    final msg = Uri.encodeComponent('Assalamu alaikum, Bin-Mukhtar Travels 🌙\n'
+        'Request from the Umrah Trip app:\n'
         '• Service: $_service\n'
-        '• Log: ${_peopleCtrl.text.trim()}\n'
-        '• Tareekh: ${_dateCtrl.text.trim().isEmpty ? '-' : _dateCtrl.text.trim()}\n'
+        '• Travellers: ${_peopleCtrl.text.trim()}\n'
+        '• Date: ${_dateCtrl.text.trim().isEmpty ? '-' : _dateCtrl.text.trim()}\n'
         '${_noteCtrl.text.trim().isEmpty ? '' : '• Note: ${_noteCtrl.text.trim()}\n'}'
-        'JazakAllah khair.');
+        'JazakAllahu khayran.');
     final ok = await launchUrl(Uri.parse('https://wa.me/$number?text=$msg'),
         mode: LaunchMode.externalApplication);
     if (!ok && mounted) {

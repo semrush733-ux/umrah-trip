@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BWP Umrah Pair
  * Description: Umrah Trip app backend — user accounts with cloud backup/restore, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.3.0
+ * Version: 1.3.1
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.3.0');
+define('BWP_UMRAH_PAIR_VERSION', '1.3.1');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -392,7 +392,7 @@ function bwp_up_route_join(WP_REST_Request $req) {
     if (bwp_up_rate_limited('join', 60, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
     $code = strtoupper(sanitize_text_field((string) $req->get_param('code')));
     $pair = bwp_up_load($code);
-    if (!$pair) return bwp_up_err('Code not found — check the 6-character code', 404);
+    if (!$pair) return bwp_up_err('Code not found — please check the 6-character code', 404);
     if (count($pair['members']) >= 2) return bwp_up_err('This code is already paired with two devices', 409);
 
     $name = bwp_up_sanitize_name($req->get_param('name'));
@@ -559,9 +559,9 @@ function bwp_ua_register(WP_REST_Request $req) {
     $email = strtolower(trim(sanitize_email((string) $req->get_param('email'))));
     $pass  = (string) $req->get_param('password');
     $name  = bwp_up_sanitize_name($req->get_param('name'));
-    if (!bwp_ua_valid_email($email)) return bwp_up_err('Valid email likhein');
-    if (strlen($pass) < 6) return bwp_up_err('Password kam az kam 6 characters ka ho');
-    if (bwp_ua_find_by_email($email)) return bwp_up_err('Is email se account pehle se bana hua hai — Login karein', 409);
+    if (!bwp_ua_valid_email($email)) return bwp_up_err('Please enter a valid email address');
+    if (strlen($pass) < 6) return bwp_up_err('Password must be at least 6 characters');
+    if (bwp_ua_find_by_email($email)) return bwp_up_err('An account with this email already exists — please sign in', 409);
     $ok = $wpdb->insert(bwp_ua_table(), [
         'email' => $email,
         'name' => $name,
@@ -571,7 +571,7 @@ function bwp_ua_register(WP_REST_Request $req) {
         'data_updated' => 0,
         'created' => bwp_up_now(),
     ]);
-    if (!$ok) return bwp_up_err('Account create nahi hua, dobara try karein', 500);
+    if (!$ok) return bwp_up_err('Could not create the account, please try again', 500);
     $row = bwp_ua_find_by_email($email);
     $token = bwp_ua_issue_token($row);
     return bwp_up_json(['token' => $token, 'email' => $email, 'name' => $name, 'data' => null, 'data_updated' => 0]);
@@ -583,7 +583,7 @@ function bwp_ua_login(WP_REST_Request $req) {
     $pass  = (string) $req->get_param('password');
     $row = bwp_ua_find_by_email($email);
     if (!$row || !password_verify($pass, $row['pass_hash'])) {
-        return bwp_up_err('Email ya password ghalat hai', 401);
+        return bwp_up_err('Incorrect email or password', 401);
     }
     $token = bwp_ua_issue_token($row);
     $data = $row['data'] ? json_decode($row['data'], true) : null;
@@ -597,7 +597,7 @@ function bwp_ua_backup(WP_REST_Request $req) {
     global $wpdb;
     if (bwp_up_rate_limited('acct_backup', 400, HOUR_IN_SECONDS)) return bwp_up_err('Too many requests', 429);
     $row = bwp_ua_find_by_token($req->get_param('token'));
-    if (!$row) return bwp_up_err('Session expired — dobara login karein', 401);
+    if (!$row) return bwp_up_err('Session expired — please sign in again', 401);
     $data = $req->get_param('data');
     if (!is_array($data)) return bwp_up_err('Invalid backup data');
     $json = wp_json_encode($data);
@@ -609,7 +609,7 @@ function bwp_ua_backup(WP_REST_Request $req) {
 
 function bwp_ua_restore(WP_REST_Request $req) {
     $row = bwp_ua_find_by_token($req->get_param('token'));
-    if (!$row) return bwp_up_err('Session expired — dobara login karein', 401);
+    if (!$row) return bwp_up_err('Session expired — please sign in again', 401);
     return bwp_up_json([
         'email' => $row['email'], 'name' => $row['name'],
         'data' => $row['data'] ? json_decode($row['data'], true) : null,
@@ -632,9 +632,9 @@ function bwp_ua_logout(WP_REST_Request $req) {
 function bwp_ua_delete(WP_REST_Request $req) {
     global $wpdb;
     $row = bwp_ua_find_by_token($req->get_param('token'));
-    if (!$row) return bwp_up_err('Session expired — dobara login karein', 401);
+    if (!$row) return bwp_up_err('Session expired — please sign in again', 401);
     if (!password_verify((string) $req->get_param('password'), $row['pass_hash'])) {
-        return bwp_up_err('Password ghalat hai', 401);
+        return bwp_up_err('Incorrect password', 401);
     }
     $wpdb->delete(bwp_ua_table(), ['id' => $row['id']]);
     return bwp_up_json([]);
@@ -663,9 +663,9 @@ function bwp_ua_admin_page() {
         if ($id > 0 && strlen($pw) >= 6) {
             // New password + sign out all devices.
             $wpdb->update(bwp_ua_table(), ['pass_hash' => password_hash($pw, PASSWORD_DEFAULT), 'tokens' => '[]'], ['id' => $id]);
-            echo '<div class="notice notice-success"><p>Password reset. User ab naye password se login kare.</p></div>';
+            echo '<div class="notice notice-success"><p>Password reset. The user can now sign in with the new password.</p></div>';
         } else {
-            echo '<div class="notice notice-error"><p>Password kam az kam 6 characters ka ho.</p></div>';
+            echo '<div class="notice notice-error"><p>The password must be at least 6 characters.</p></div>';
         }
     }
     $rows = $wpdb->get_results('SELECT id, email, name, data_updated, created, CHAR_LENGTH(data) AS sz FROM ' . bwp_ua_table() . ' ORDER BY id DESC LIMIT 500', ARRAY_A);

@@ -128,7 +128,7 @@ class _PairScreenState extends State<PairScreen> {
               TextField(
                 controller: _nameCtrl,
                 decoration: const InputDecoration(
-                  hintText: 'e.g. Sheraz',
+                  hintText: 'e.g. Ahmed',
                   border: OutlineInputBorder(),
                   isDense: true,
                 ),
@@ -143,7 +143,7 @@ class _PairScreenState extends State<PairScreen> {
       _methodCard(
         icon: Icons.qr_code_2_rounded,
         title: 'Phone 1 — Create code',
-        subtitle: 'QR banega: Phone 2 scan kare, ya code AirDrop/WhatsApp se bhejein',
+        subtitle: 'Shows a QR code for Phone 2 to scan, or send the code via AirDrop/WhatsApp',
         button: FilledButton.icon(
           onPressed: _busy
               ? null
@@ -160,9 +160,9 @@ class _PairScreenState extends State<PairScreen> {
       // Method 3: same WiFi
       _methodCard(
         icon: Icons.wifi_rounded,
-        title: 'Same WiFi — automatic',
+        title: 'Same Wi-Fi — automatic',
         subtitle:
-            'Dono phones isi WiFi par hon to dono par ye button dabayen (2 minute ke andar) — khud pair ho jayenge',
+            'With both phones on the same Wi-Fi, tap this button on each within 2 minutes — they will pair automatically',
         button: FilledButton.tonalIcon(
           onPressed: _busy
               ? null
@@ -176,11 +176,11 @@ class _PairScreenState extends State<PairScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                           content: Text(joined
                               ? 'Paired ✓'
-                              : 'Code $code — ab dusre phone par bhi "Same WiFi" dabayen')));
+                              : 'Code $code — now tap "Same Wi-Fi" on the other phone too')));
                     }
                   }),
           icon: const Icon(Icons.wifi_tethering_rounded),
-          label: const Text('Pair on same WiFi'),
+          label: const Text('Pair on same Wi-Fi'),
         ),
       ),
 
@@ -188,7 +188,7 @@ class _PairScreenState extends State<PairScreen> {
       _methodCard(
         icon: Icons.qr_code_scanner_rounded,
         title: 'Phone 2 — Scan QR',
-        subtitle: 'Phone 1 ke QR ko camera se scan karein (permission ke baad)',
+        subtitle: 'Scan the QR code on Phone 1 with the camera (after allowing permission)',
         button: OutlinedButton.icon(
           onPressed: _busy ? null : _scanQr,
           icon: const Icon(Icons.qr_code_scanner_rounded),
@@ -328,7 +328,7 @@ class _PairScreenState extends State<PairScreen> {
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: () => Share.share(
-                          'Umrah Trip pairing code: $code\nApp mein "Join with code" par ye code dalein.'),
+                          'Umrah Trip pairing code: $code\nOpen the app, tap "Join with code" and enter this code.'),
                       icon: const Icon(Icons.ios_share_rounded, size: 18),
                       label: const Text('Share / AirDrop'),
                     ),
@@ -455,9 +455,9 @@ class _PairScreenState extends State<PairScreen> {
                     Expanded(
                       child: Text(
                         !p.sharing
-                            ? '${p.name}: location sharing OFF (unke phone par toggle on karwayen)'
+                            ? '${p.name}: location sharing is OFF (ask them to switch it on)'
                             : p.lat == null
-                                ? '${p.name}: pehli location ka intezar… (unka app khula ho)'
+                                ? '${p.name}: waiting for the first location… (their app must be open)'
                                 : '${p.name}: ${locFresh ? 'LIVE' : 'last seen'} ${p.locAt != null ? DateFormat('HH:mm:ss').format(p.locAt!) : ''}',
                         style: TextStyle(
                             fontSize: 12,
@@ -516,7 +516,7 @@ class _PairScreenState extends State<PairScreen> {
                           ? null
                           : () => _capture(ImageSource.camera),
                       icon: const Icon(Icons.photo_camera_rounded, size: 26),
-                      label: const Text('Photo bhejo (1-tap)',
+                      label: const Text('Send photo (1 tap)',
                           style: TextStyle(fontSize: 15)),
                     ),
                   ),
@@ -539,7 +539,7 @@ class _PairScreenState extends State<PairScreen> {
               ),
               const SizedBox(height: 4),
               const Text(
-                  'Camera khulta hai → photo lo → khud-ba-khud partner ko chali jati hai.',
+                  'The camera opens → take a photo → it is sent to your partner automatically.',
                   style: TextStyle(fontSize: 11.5)),
               if (pair.photos.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -846,7 +846,7 @@ class _LiveMapCardState extends State<_LiveMapCard> {
                   color: Colors.black.withValues(alpha: 0.35),
                   alignment: Alignment.center,
                   child: const Text(
-                    'Location sharing on karein —\ndono ke pins yahin dikhen ge',
+                    'Turn on location sharing —\nboth pins will appear here',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                         color: Colors.white, fontWeight: FontWeight.w700),
@@ -922,7 +922,7 @@ class _QrScanScreenState extends State<_QrScanScreen> {
             right: 0,
             bottom: 36,
             child: Text(
-              'Phone 1 ke "Show QR" ko frame mein layen',
+              'Fit the QR code from Phone 1 inside the frame',
               textAlign: TextAlign.center,
               style: TextStyle(
                   color: Colors.white,

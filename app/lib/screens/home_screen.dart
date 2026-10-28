@@ -225,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         builder: (_) => const JourneyGuideScreen()))),
                 _QuickAction(
                     icon: Icons.recommend_rounded,
-                    label: 'Kahan Jayen?',
+                    label: 'Where to Go',
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(
                         builder: (_) => const RecommendationsScreen()))),
                 _QuickAction(
@@ -249,7 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         : (app.hotelLabel ?? 'My Hotel'),
                     style: const TextStyle(fontWeight: FontWeight.w700)),
                 subtitle: Text(app.hotelLat == null
-                    ? 'Hotel par ho kar tap karein — wapsi ka rasta hamesha ek tap par'
+                    ? 'Tap while at your hotel — your way back is always one tap away'
                     : 'Tap: navigate back to hotel · long-press: update/remove'),
                 trailing: app.hotelLat == null
                     ? const Icon(Icons.add_location_alt_rounded)
@@ -444,7 +444,7 @@ Future<void> _saveHotelHere(BuildContext context, AppState app) async {
   if (p == null) {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location chahiye — GPS on kar ke dobara try karein.')));
+          const SnackBar(content: Text('Location is needed — please turn on GPS and try again.')));
     }
     return;
   }

@@ -459,7 +459,7 @@ class _DestinationDetailScreenState extends State<DestinationDetailScreen> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _SectionTitle('Nearby Ziyarat — aage kahan?'),
+                        _SectionTitle('Nearby ziyarat — where next?'),
                         ...top.map((o) {
                           final km = haversineKm(d.lat, d.lng, o.lat, o.lng);
                           return Card(
