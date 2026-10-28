@@ -67,7 +67,7 @@ class _CallScreenState extends State<CallScreen> {
   void initState() {
     super.initState();
     _isCaller = widget.incomingCallId == null;
-    _video = _video;
+    _video = widget.video;
     _social = context.read<SocialService>();
     _social.inCall = true;
     _start();
