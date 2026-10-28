@@ -228,6 +228,53 @@ def patch_android_desugaring() -> None:
         print("ok: desugaring enabled (build.gradle)")
 
 
+def patch_android_plugin_compile_sdk() -> None:
+    """Some plugins (e.g. flutter_webrtc) still compile against android-31,
+    but their AndroidX dependencies need 34+. Force every Android library
+    module to compile against SDK 35 (compile-time only; minSdk unchanged)."""
+    kts = APP / "android/build.gradle.kts"
+    groovy = APP / "android/build.gradle"
+    marker = "// umrah-trip: force plugin compileSdk"
+    if kts.exists():
+        t = kts.read_text()
+        if marker not in t:
+            block = (
+                f"{marker}\n"
+                "subprojects {\n"
+                "    afterEvaluate {\n"
+                "        val ext = project.extensions.findByName(\"android\")\n"
+                "        if (ext is com.android.build.gradle.BaseExtension) {\n"
+                "            val cur = ext.compileSdkVersion?.removePrefix(\"android-\")?.toIntOrNull() ?: 0\n"
+                "            if (cur < 35) ext.compileSdkVersion(35)\n"
+                "        }\n"
+                "    }\n"
+                "}\n\n"
+            )
+            # Must run before `subprojects { project.evaluationDependsOn(":app") }`
+            idx = t.find("subprojects {")
+            t = t[:idx] + block + t[idx:] if idx != -1 else t + "\n" + block
+            kts.write_text(t)
+        print("ok: plugin compileSdk forced to 35 (build.gradle.kts)")
+    elif groovy.exists():
+        t = groovy.read_text()
+        if marker not in t:
+            block = (
+                f"{marker}\n"
+                "subprojects {\n"
+                "    afterEvaluate { project ->\n"
+                "        if (project.hasProperty('android')) {\n"
+                "            def cur = (project.android.compileSdkVersion ?: '').toString().replace('android-', '')\n"
+                "            if (!cur.isInteger() || cur.toInteger() < 35) project.android.compileSdkVersion 35\n"
+                "        }\n"
+                "    }\n"
+                "}\n\n"
+            )
+            idx = t.find("subprojects {")
+            t = t[:idx] + block + t[idx:] if idx != -1 else t + "\n" + block
+            groovy.write_text(t)
+        print("ok: plugin compileSdk forced to 35 (build.gradle)")
+
+
 def patch_android_signing() -> None:
     """Sign release builds with the permanent Umrah Trip keystore when the
     ANDROID_KEYSTORE_* env vars are present (CI secrets / local env). Without
@@ -319,6 +366,7 @@ if __name__ == "__main__":
         sys.exit("Run this from the app/ directory (pubspec.yaml not found).")
     patch_android_manifest()
     patch_android_desugaring()
+    patch_android_plugin_compile_sdk()
     patch_ios_plist()
     patch_ios_appdelegate()
     patch_ios_podfile()
