@@ -82,7 +82,6 @@ def patch_android_manifest() -> None:
         text = text.replace('<manifest ', '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
     if 'id.flutter.flutter_background_service.BackgroundService' not in text:
         svc = ('        <service android:name="id.flutter.flutter_background_service.BackgroundService"\n'
-               '            android:exported="false"\n'
                '            android:foregroundServiceType="remoteMessaging"\n'
                '            tools:replace="android:foregroundServiceType" />\n')
         text = text.replace('</application>', svc + '    </application>', 1)
