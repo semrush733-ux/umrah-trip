@@ -9,10 +9,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// The pairing server is fixed to the official Umrah Trip site and hidden
 /// from the UI. It can still be overridden at build time with
 ///   --dart-define=PAIR_API_BASE=https://other-site.com
-const String kDefaultPairApiBase = String.fromEnvironment(
-  'PAIR_API_BASE',
-  defaultValue: 'https://umrahtrip.sbs',
-);
+// CI passes `--dart-define=PAIR_API_BASE=` even when the secret is unset,
+// which defines it as an EMPTY string — so fall back explicitly.
+const String _envPairApiBase = String.fromEnvironment('PAIR_API_BASE');
+const String kDefaultPairApiBase =
+    _envPairApiBase == '' ? 'https://umrahtrip.sbs' : _envPairApiBase;
 
 class PairApiResult {
   final bool ok;
