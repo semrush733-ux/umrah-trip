@@ -10,6 +10,7 @@ import 'screens/sos_screen.dart';
 import 'screens/splash_screen.dart';
 import 'services/account_service.dart';
 import 'services/app_state.dart';
+import 'services/background_service.dart';
 import 'services/notifications_service.dart';
 import 'services/pair_state.dart';
 import 'services/push_service.dart';
@@ -45,7 +46,7 @@ class UmrahJourneyApp extends StatefulWidget {
   State<UmrahJourneyApp> createState() => _UmrahJourneyAppState();
 }
 
-class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
+class _UmrahJourneyAppState extends State<UmrahJourneyApp> with WidgetsBindingObserver {
   late final AppState state;
   late final PairState pairState;
   late final SiteService siteService;
@@ -63,6 +64,9 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
     socialService = SocialService(accountService, pairState);
     pushService = PushService(accountService, pairState, socialService);
     siteService.addListener(_onSiteUpdate);
+    WidgetsBinding.instance.addObserver(this);
+    accountService.addListener(_syncBackgroundService);
+    pairState.addListener(_syncBackgroundService);
     socialService.incomingCalls.stream.listen((c) {
       if (socialService.inCall) {
         // Already on a call → tell the caller we're busy.
@@ -111,8 +115,33 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
           .then((_) => socialService.init())
           .then((_) => accountService.refreshProfile())
           .then((_) => pushService.init())
+          .then((_) => _syncBackgroundService())
           .catchError((_) {});
     });
+  }
+
+  bool _bgStarted = false;
+
+  /// Android: keep the background connection running while signed in or
+  /// paired (so calls & messages arrive with the app closed).
+  void _syncBackgroundService() {
+    final want = accountService.loggedIn || pairState.paired;
+    if (want && !_bgStarted) {
+      _bgStarted = true;
+      BackgroundService.start();
+    } else if (!want && _bgStarted) {
+      _bgStarted = false;
+      BackgroundService.stop();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState s) {
+    socialService.appInForeground = s == AppLifecycleState.resumed;
+    if (s == AppLifecycleState.resumed) {
+      socialService.refreshInbox(); // show a ringing call straight away
+      socialService.refreshCallHistory();
+    }
   }
 
   void _onSiteUpdate() {
@@ -127,6 +156,7 @@ class _UmrahJourneyAppState extends State<UmrahJourneyApp> {
   @override
   void dispose() {
     siteService.removeListener(_onSiteUpdate);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 

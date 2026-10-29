@@ -44,6 +44,9 @@ def patch_android_manifest() -> None:
         '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>',
         '<uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>',
         '<uses-permission android:name="android.permission.WAKE_LOCK"/>',
+        '<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>',
+        '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING"/>',
+        '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>',
     ]
     for p in perms:
         if p.split('"')[1] not in text:
@@ -72,6 +75,21 @@ def patch_android_manifest() -> None:
 
     # App label
     text = text.replace('android:label="umrah_journey"', 'android:label="Umrah Trip"')
+
+    # Background connection service (flutter_background_service) runs as a
+    # "remoteMessaging" foreground service — no daily time limit, unlike dataSync.
+    if 'xmlns:tools=' not in text:
+        text = text.replace('<manifest ', '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
+    if 'id.flutter.flutter_background_service.BackgroundService' not in text:
+        svc = ('        <service android:name="id.flutter.flutter_background_service.BackgroundService"\n'
+               '            android:exported="false"\n'
+               '            android:foregroundServiceType="remoteMessaging"\n'
+               '            tools:replace="android:foregroundServiceType" />\n')
+        text = text.replace('</application>', svc + '    </application>', 1)
+    # Incoming-call notification may open the app over the lock screen.
+    if 'android:showWhenLocked' not in text:
+        text = re.sub(r'(<activity\s+android:name="\.MainActivity")',
+                      r'\1 android:showWhenLocked="true" android:turnScreenOn="true"', text, count=1)
     mf.write_text(text)
     print("ok: AndroidManifest.xml patched")
 

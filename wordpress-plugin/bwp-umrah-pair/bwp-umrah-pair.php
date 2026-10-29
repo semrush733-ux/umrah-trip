@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BWP Umrah Pair
  * Description: Umrah Trip app backend — user accounts with cloud backup/restore, friends, live chat and calls, couple pairing (code / QR / same-WiFi), live-location + visited sync, shared photos, plus the app admin panel: WhatsApp number, packages, announcements, extra destinations and the AI assistant proxy. REST namespace: umrah-pair/v1.
- * Version: 1.7.0
+ * Version: 1.8.0
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('BWP_UMRAH_PAIR_VERSION', '1.7.0');
+define('BWP_UMRAH_PAIR_VERSION', '1.8.0');
 define('BWP_UMRAH_PAIR_MAX_PHOTO_B64', 1300000); // ~975 KB binary
 define('BWP_UMRAH_PAIR_MAX_PHOTOS', 60);
 define('BWP_UMRAH_PAIR_TTL_DAYS', 60);
@@ -94,6 +94,8 @@ function bwp_umrah_pair_install() {
         status VARCHAR(12) NOT NULL DEFAULT 'ringing',
         offer LONGTEXT NULL,
         answer LONGTEXT NULL,
+        answered BIGINT UNSIGNED NOT NULL DEFAULT 0,
+        ended BIGINT UNSIGNED NOT NULL DEFAULT 0,
         created BIGINT UNSIGNED NOT NULL,
         updated BIGINT UNSIGNED NOT NULL,
         PRIMARY KEY (id),
@@ -289,6 +291,7 @@ add_action('rest_api_init', function () {
     register_rest_route($ns, '/meet/set',       $pub + ['methods' => 'POST', 'callback' => 'bwp_umeet_set']);
     register_rest_route($ns, '/meet/get',       $pub + ['methods' => 'POST', 'callback' => 'bwp_umeet_get']);
     register_rest_route($ns, '/sos/send',       $pub + ['methods' => 'POST', 'callback' => 'bwp_usos_send']);
+    register_rest_route($ns, '/call/history',   $pub + ['methods' => 'POST', 'callback' => 'bwp_ucall_history']);
     register_rest_route($ns, '/push/register',  $pub + ['methods' => 'POST', 'callback' => 'bwp_upush_register']);
 });
 
@@ -1296,7 +1299,7 @@ function bwp_ucall_answer(WP_REST_Request $req) {
     if (!is_array($ans) || empty($ans['sdp'])) return bwp_up_err('Missing answer');
     $wpdb->update(bwp_ucall_table(), [
         'answer' => wp_json_encode(['type' => (string) ($ans['type'] ?? 'answer'), 'sdp' => (string) $ans['sdp']]),
-        'status' => 'active', 'updated' => bwp_up_now(),
+        'status' => 'active', 'updated' => bwp_up_now(), 'answered' => bwp_up_now(),
     ], ['id' => $c['id']]);
     return bwp_up_json([]);
 }
@@ -1309,7 +1312,12 @@ function bwp_ucall_end(WP_REST_Request $req) {
     $c = bwp_ucall_load($thread, (string) $req->get_param('call_id'));
     if (!$c) return bwp_up_err('Call not found', 404);
     $st = in_array($req->get_param('status'), ['declined', 'busy'], true) ? $req->get_param('status') : 'ended';
-    $wpdb->update(bwp_ucall_table(), ['status' => $st, 'updated' => bwp_up_now()], ['id' => $c['id']]);
+    $upd = ['updated' => bwp_up_now()];
+    if (in_array($c['status'], ['ringing', 'active'], true)) { // first hang-up wins
+        $upd['status'] = ($c['status'] === 'active') ? 'ended' : $st;
+        $upd['ended'] = bwp_up_now();
+    }
+    $wpdb->update(bwp_ucall_table(), $upd, ['id' => $c['id']]);
     return bwp_up_json([]);
 }
 
@@ -1318,7 +1326,7 @@ add_action('init', function () {
     if (get_transient('bwp_ucall_gc')) return;
     set_transient('bwp_ucall_gc', 1, 6 * HOUR_IN_SECONDS);
     global $wpdb;
-    $wpdb->query($wpdb->prepare('DELETE FROM ' . bwp_ucall_table() . ' WHERE created < %d', time() - 2 * DAY_IN_SECONDS));
+    $wpdb->query($wpdb->prepare('DELETE FROM ' . bwp_ucall_table() . ' WHERE created < %d', time() - 90 * DAY_IN_SECONDS));
 });
 
 
@@ -1763,4 +1771,56 @@ function bwp_upush_message($thread, $who, $type, $body) {
         $preview = 'Tap to see their location';
     }
     bwp_upush_send($others, ['type' => $type, 'thread' => $thread, 'sender' => $who[1]], $title, $preview, $urgent);
+}
+
+
+// ---------------------------------------------------------------- call history (v1.8)
+
+function bwp_ucall_history(WP_REST_Request $req) {
+    global $wpdb;
+    $threads = []; // thread => [my_key, peer name]
+    $me = bwp_ua_find_by_token($req->get_param('token'));
+    if ($me) {
+        $mk = 'u:' . (int) $me['id'];
+        $rows = $wpdb->get_results($wpdb->prepare(
+            "SELECT * FROM " . bwp_uf_table() . " WHERE (a_id = %d OR b_id = %d) AND status = 'accepted'", $me['id'], $me['id']
+        ), ARRAY_A);
+        foreach ($rows as $f) {
+            $other = ((int) $f['a_id'] === (int) $me['id']) ? (int) $f['b_id'] : (int) $f['a_id'];
+            $o = $wpdb->get_row($wpdb->prepare('SELECT name, avatar FROM ' . bwp_ua_table() . ' WHERE id = %d', $other), ARRAY_A);
+            if ($o) $threads['dm:' . (int) $f['id']] = [$mk, $o['name'], $o['avatar']];
+        }
+    }
+    $code = strtoupper(sanitize_text_field((string) $req->get_param('pair_code')));
+    if ($code !== '') {
+        $pair = bwp_up_load($code);
+        $tkn = bwp_up_auth($pair, (string) $req->get_param('ptoken'));
+        if ($tkn) {
+            $peer = 'Partner';
+            foreach ($pair['members'] as $k => $m) if ($k !== $tkn) $peer = $m['name'];
+            $threads['pair:' . $code] = ['p:' . substr(hash('sha256', $tkn), 0, 16), $peer, null];
+        }
+    }
+    if (!$threads) return bwp_up_err('Sign in or pair first', 401);
+    $in = implode(',', array_fill(0, count($threads), '%s'));
+    $rows = $wpdb->get_results($wpdb->prepare(
+        'SELECT call_id, thread, caller_key, caller_name, video, status, created, answered, ended, updated FROM ' . bwp_ucall_table() .
+        " WHERE thread IN ($in) ORDER BY id DESC LIMIT 150", array_keys($threads)
+    ), ARRAY_A);
+    $out = [];
+    foreach ($rows as $c) {
+        [$mykey, $peer, $avatar] = $threads[$c['thread']];
+        $status = $c['status'];
+        if ($status === 'ringing' && bwp_up_now() - (int) $c['created'] > 60) $status = 'missed';
+        $ans = (int) $c['answered'];
+        $end = (int) $c['ended'] ?: ($status === 'ended' || $status === 'active' ? (int) $c['updated'] : 0);
+        $out[] = [
+            'call_id' => $c['call_id'], 'thread' => $c['thread'], 'video' => (bool) $c['video'],
+            'outgoing' => $c['caller_key'] === $mykey, 'peer' => $peer, 'avatar' => $avatar,
+            'status' => $ans > 0 ? 'answered' : $status, // answered | missed | declined | busy | ended(never answered) | ringing
+            'ts' => (int) $c['created'],
+            'duration' => ($ans > 0 && $end > $ans) ? $end - $ans : 0,
+        ];
+    }
+    return bwp_up_json(['calls' => $out]);
 }

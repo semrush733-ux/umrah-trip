@@ -12,6 +12,7 @@ import 'expenses_screen.dart';
 import 'experiences_screen.dart';
 import 'memories_screen.dart';
 import 'pair_screen.dart';
+import 'root.dart';
 import 'sponsor_screen.dart';
 import 'umrah_guide_screen.dart';
 
@@ -106,6 +107,21 @@ class ProfileScreen extends StatelessWidget {
                     onChanged: app.setRomanUrdu,
                   ),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Chat & calls only mode
+          Card(
+            child: ValueListenableBuilder<bool>(
+              valueListenable: RootScreen.simpleMode,
+              builder: (_, simple, __) => SwitchListTile(
+                secondary: const Icon(Icons.forum_rounded, color: AppColors.emerald),
+                title: const Text('Chats & calls only'),
+                subtitle: const Text('Hide the Umrah guide tabs — keep chats, calls, SOS and your profile'),
+                value: simple,
+                onChanged: RootScreen.setSimpleMode,
               ),
             ),
           ),

@@ -17,7 +17,9 @@ import 'groups_screen.dart';
 /// Chats & friends: add people by email or @username, accept requests,
 /// open chats (and the couple-pairing partner chat).
 class FriendsScreen extends StatefulWidget {
-  const FriendsScreen({super.key});
+  /// true inside the Chats | Calls hub (which supplies the app bar).
+  final bool embedded;
+  const FriendsScreen({super.key, this.embedded = false});
   @override
   State<FriendsScreen> createState() => _FriendsScreenState();
 }
@@ -172,7 +174,7 @@ class _FriendsScreenState extends State<FriendsScreen> with WidgetsBindingObserv
 
     if (!acct.loggedIn) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Chats')),
+        appBar: widget.embedded ? null : AppBar(title: const Text('Chats')),
         body: ListView(
           padding: const EdgeInsets.all(20),
           children: [
@@ -203,7 +205,7 @@ class _FriendsScreenState extends State<FriendsScreen> with WidgetsBindingObserv
     final accepted = social.friends.where((f) => f.accepted).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Chats')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('Chats')),
       body: RefreshIndicator(
         onRefresh: () async {
           await social.refreshFriends();

@@ -140,6 +140,35 @@ class SosAlert {
   const SosAlert(this.thread, this.from, this.lat, this.lng, this.audio, this.at);
 }
 
+class CallRecord {
+  final String callId;
+  final String thread;
+  final bool video;
+  final bool outgoing;
+  final String peer;
+  final String? avatar;
+  final String status; // answered | missed | declined | busy | ended | ringing
+  final DateTime at;
+  final int duration; // seconds
+  const CallRecord(this.callId, this.thread, this.video, this.outgoing, this.peer, this.avatar,
+      this.status, this.at, this.duration);
+
+  bool get answered => status == 'answered';
+  bool get missedByMe => !outgoing && !answered && status != 'ringing';
+
+  factory CallRecord.fromJson(Map j) => CallRecord(
+        '${j['call_id']}',
+        '${j['thread']}',
+        j['video'] == true,
+        j['outgoing'] == true,
+        '${j['peer'] ?? ''}',
+        (j['avatar'] ?? '').toString().isEmpty ? null : j['avatar'].toString(),
+        '${j['status'] ?? ''}',
+        DateTime.fromMillisecondsSinceEpoch((int.tryParse('${j['ts']}') ?? 0) * 1000),
+        int.tryParse('${j['duration']}') ?? 0,
+      );
+}
+
 class SocialResult {
   final bool ok;
   final Map<String, dynamic> data;
@@ -200,6 +229,7 @@ class SocialService extends ChangeNotifier {
       } catch (_) {}
     }
     shareGroupLocation = p.getBool('share_group_loc') ?? false;
+    _callsSeenAt = DateTime.fromMillisecondsSinceEpoch(p.getInt('calls_seen_at') ?? 0);
     account.addListener(_onAccountChanged);
     pair.addListener(_onAccountChanged);
     _loadCallServer();
@@ -355,6 +385,46 @@ class SocialService extends ChangeNotifier {
       'chat/send',
       {'thread': thread, 'type': 'voice', 'audio': base64Encode(audio), 'duration': seconds, ..._auth(thread)},
       timeout: const Duration(seconds: 60));
+
+  // ---------------- call history ----------------
+
+  List<CallRecord> callHistory = [];
+  String? callHistoryError;
+
+  Future<void> refreshCallHistory() async {
+    if (!account.loggedIn && !pair.paired) return;
+    final r = await _post('call/history', {
+      if (account.loggedIn) 'token': account.token,
+      if (pair.paired) 'pair_code': pair.code,
+      if (pair.paired) 'ptoken': pair.token,
+    });
+    if (r.ok) {
+      final l = r.data['calls'];
+      callHistory = l is List ? l.whereType<Map>().map(CallRecord.fromJson).toList() : [];
+      callHistoryError = null;
+      _countMissed();
+    } else {
+      callHistoryError = r.error;
+    }
+    notifyListeners();
+  }
+
+  /// Missed calls since the user last opened the Calls list.
+  int missedCallsUnseen = 0;
+  DateTime _callsSeenAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  Future<void> markCallsSeen() async {
+    _callsSeenAt = DateTime.now();
+    missedCallsUnseen = 0;
+    notifyListeners();
+    final p = await SharedPreferences.getInstance();
+    await p.setInt('calls_seen_at', _callsSeenAt.millisecondsSinceEpoch);
+  }
+
+  void _countMissed() {
+    missedCallsUnseen =
+        callHistory.where((c) => c.missedByMe && c.at.isAfter(_callsSeenAt)).length;
+  }
 
   // ---------------- groups ----------------
 
@@ -573,8 +643,18 @@ class SocialService extends ChangeNotifier {
     p.setString('chat_seen', jsonEncode(_seenId));
   }
 
+  int _lastCallMsgId = 0;
+
+  /// Tells the Android background service the app is on screen, so it
+  /// doesn't duplicate notifications the app already shows.
+  bool appInForeground = true;
+
   Future<void> refreshInbox() async {
     if (!account.loggedIn && !pair.paired) return;
+    if (appInForeground) {
+      SharedPreferences.getInstance()
+          .then((p) => p.setInt('app_fg_at', DateTime.now().millisecondsSinceEpoch));
+    }
     final r = await _post('chat/inbox', {
       if (account.loggedIn) 'token': account.token,
       if (pair.paired) 'pair_thread': 'pair:${pair.code}',
@@ -645,6 +725,15 @@ class SocialService extends ChangeNotifier {
           }
         }
       });
+    }
+    if (latest is Map &&
+        latest.values.any((v) => v is Map && v['type'] == 'call' && (int.tryParse('${v['id']}') ?? 0) > _lastCallMsgId)) {
+      _lastCallMsgId = latest.values
+          .whereType<Map>()
+          .where((v) => v['type'] == 'call')
+          .map((v) => int.tryParse('${v['id']}') ?? 0)
+          .fold<int>(_lastCallMsgId, (a, b) => a > b ? a : b);
+      refreshCallHistory();
     }
     if (latest is Map &&
         latest.keys.any((k) => '$k'.startsWith('grp:') && groupFor('$k') == null)) {
