@@ -157,7 +157,9 @@ class _CallScreenState extends State<CallScreen> {
       if (!done.isCompleted) done.complete();
     }
     await done.future.timeout(const Duration(seconds: 4), onTimeout: () {});
-    final d = await _pc!.getLocalDescription();
+    final pc = _pc;
+    if (pc == null) return {'type': '', 'sdp': ''}; // hung up meanwhile
+    final d = await pc.getLocalDescription();
     return {'type': d?.type ?? '', 'sdp': d?.sdp ?? ''};
   }
 
@@ -173,6 +175,7 @@ class _CallScreenState extends State<CallScreen> {
     });
     await _pc!.setLocalDescription(offer);
     final full = await _completeLocalDescription();
+    if (!mounted || _closing || '${full['sdp']}'.isEmpty) return;
     final r = await _social.callStart(widget.thread, full, _video);
     if (!mounted) return;
     if (!r.ok) {
@@ -282,6 +285,7 @@ class _CallScreenState extends State<CallScreen> {
     final answer = await _pc!.createAnswer({});
     await _pc!.setLocalDescription(answer);
     final full = await _completeLocalDescription();
+    if (!mounted || _closing || '${full['sdp']}'.isEmpty) return;
     final r = await _social.callAnswer(widget.thread, _callId!, full);
     if (!mounted) return;
     if (!r.ok) { _fail(r.error ?? 'Could not answer'); return; }
