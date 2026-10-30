@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -62,6 +63,14 @@ class _CallScreenState extends State<CallScreen> {
   bool _closing = false;
   bool _isCaller = true;
   late bool _video;
+  bool _hd = true; // video quality: HD (720p/30fps) or data saver
+  // ICE gathering progress (fast non-trickle: send as soon as a usable path exists)
+  bool _gatherDone = false;
+  bool _hasSrflx = false;
+  bool _hasRelay = false;
+  /// Callee: the answer is prepared while the phone rings, so "Accept"
+  /// connects at once instead of starting from scratch.
+  Future<Map<String, dynamic>?>? _prepared;
 
   @override
   void initState() {
@@ -85,7 +94,8 @@ class _CallScreenState extends State<CallScreen> {
         _phase = _Phase.incoming;
         _status = _video ? 'Incoming video call' : 'Incoming voice call';
       });
-      RingtoneService.instance.startRingtone();
+      await RingtoneService.instance.startRingtone();
+      _prepared = _prepareAnswer();
       // Watch for the caller hanging up before we answer.
       _poll = Timer.periodic(const Duration(seconds: 2), (_) => _watchIncoming());
     }
@@ -93,22 +103,76 @@ class _CallScreenState extends State<CallScreen> {
 
   // ---------------- media & peer connection ----------------
 
-  Future<bool> _openMedia() async {
+  /// [quiet]: opened while still ringing — don't touch the audio route
+  /// yet (the ringtone is playing) and don't fail the call on error.
+  Future<bool> _openMedia({bool quiet = false}) async {
     try {
       _stream = await navigator.mediaDevices.getUserMedia({
-        'audio': true,
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        },
         'video': _video
-            ? {'facingMode': 'user', 'width': 640, 'height': 480, 'frameRate': 24}
+            ? {
+                'facingMode': 'user',
+                'width': _hd ? 1280 : 640,
+                'height': _hd ? 720 : 480,
+                'frameRate': _hd ? 30 : 20,
+              }
             : false,
       });
       if (_video) _local.srcObject = _stream;
-      await Helper.setSpeakerphoneOn(_video);
       _speaker = _video;
+      if (!quiet) await _applyCallAudio();
       return true;
     } catch (e) {
-      _fail('Microphone${_video ? '/camera' : ''} permission is needed for calls.');
+      if (!quiet) _fail('Microphone${_video ? '/camera' : ''} permission is needed for calls.');
       return false;
     }
+  }
+
+  /// Puts the phone's audio into "call" mode. Needed after the ringtone /
+  /// ringback player, which can otherwise leave the microphone or the
+  /// speaker silent (the "no voice in video calls" bug).
+  Future<void> _applyCallAudio() async {
+    try {
+      if (Platform.isIOS) {
+        await Helper.setAppleAudioConfiguration(AppleAudioConfiguration(
+          appleAudioCategory: AppleAudioCategory.playAndRecord,
+          appleAudioCategoryOptions: {
+            AppleAudioCategoryOption.allowBluetooth,
+            if (_speaker) AppleAudioCategoryOption.defaultToSpeaker,
+          },
+          appleAudioMode: _video ? AppleAudioMode.videoChat : AppleAudioMode.voiceChat,
+        ));
+      } else if (Platform.isAndroid) {
+        await Helper.setAndroidAudioConfiguration(AndroidAudioConfiguration.communication);
+      }
+      await Helper.setSpeakerphoneOn(_speaker);
+    } catch (_) {}
+    for (final t in _stream?.getAudioTracks() ?? <MediaStreamTrack>[]) {
+      t.enabled = !_muted;
+    }
+  }
+
+  /// Smoother video: keep the frame rate up and allow enough bitrate.
+  Future<void> _tuneVideoSender() async {
+    final pc = _pc;
+    if (pc == null || !_video) return;
+    try {
+      for (final s in await pc.getSenders()) {
+        if (s.track?.kind != 'video') continue;
+        final p = s.parameters;
+        p.degradationPreference = RTCDegradationPreference.MAINTAIN_FRAMERATE;
+        for (final e in p.encodings ?? <RTCRtpEncoding>[]) {
+          e.maxBitrate = _hd ? 1800000 : 600000;
+          e.maxFramerate = _hd ? 30 : 20;
+          e.scaleResolutionDownBy = _hd ? 1.0 : 2.0;
+        }
+        await s.setParameters(p);
+      }
+    } catch (_) {}
   }
 
   Future<void> _createPc() async {
@@ -119,6 +183,17 @@ class _CallScreenState extends State<CallScreen> {
     for (final track in _stream!.getTracks()) {
       await _pc!.addTrack(track, _stream!);
     }
+    _gatherDone = false;
+    _hasSrflx = false;
+    _hasRelay = false;
+    _pc!.onIceCandidate = (RTCIceCandidate c) {
+      final s = c.candidate ?? '';
+      if (s.contains(' typ relay')) _hasRelay = true;
+      if (s.contains(' typ srflx')) _hasSrflx = true;
+    };
+    _pc!.onIceGatheringState = (RTCIceGatheringState s) {
+      if (s == RTCIceGatheringState.RTCIceGatheringStateComplete) _gatherDone = true;
+    };
     _pc!.onTrack = (RTCTrackEvent e) {
       if (e.streams.isNotEmpty) {
         _remote.srcObject = e.streams.first;
@@ -129,6 +204,10 @@ class _CallScreenState extends State<CallScreen> {
       if (!mounted) return;
       if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _giveUp?.cancel();
+        if (_phase != _Phase.connected) {
+          _applyCallAudio();
+          _tuneVideoSender();
+        }
         setState(() {
           _phase = _Phase.connected;
           _status = 'Connected';
@@ -145,18 +224,19 @@ class _CallScreenState extends State<CallScreen> {
     };
   }
 
-  /// Waits until ICE gathering completes (max ~4 s) and returns the full SDP.
+  /// Returns the local SDP with ICE candidates as soon as there is a usable
+  /// route (a TURN relay, or a public address) instead of waiting for every
+  /// server to answer — this is what makes the call connect quickly.
   Future<Map<String, dynamic>> _completeLocalDescription() async {
-    final done = Completer<void>();
-    _pc!.onIceGatheringState = (RTCIceGatheringState s) {
-      if (s == RTCIceGatheringState.RTCIceGatheringStateComplete && !done.isCompleted) {
-        done.complete();
-      }
-    };
-    if (_pc!.iceGatheringState == RTCIceGatheringState.RTCIceGatheringStateComplete) {
-      if (!done.isCompleted) done.complete();
+    final sw = Stopwatch()..start();
+    while (_pc != null) {
+      final ms = sw.elapsedMilliseconds;
+      if (_gatherDone) break;
+      if (_hasRelay && ms >= 500) break;
+      if (_hasSrflx && ms >= 1800) break;
+      if (ms >= 3500) break;
+      await Future.delayed(const Duration(milliseconds: 100));
     }
-    await done.future.timeout(const Duration(seconds: 4), onTimeout: () {});
     final pc = _pc;
     if (pc == null) return {'type': '', 'sdp': ''}; // hung up meanwhile
     final d = await pc.getLocalDescription();
@@ -206,7 +286,7 @@ class _CallScreenState extends State<CallScreen> {
     _giveUp = Timer(const Duration(seconds: 60), () {
       if (_phase == _Phase.ringing) _hangUp(reason: 'No answer');
     });
-    _poll = Timer.periodic(const Duration(seconds: 1), (_) => _watchOutgoing());
+    _poll = Timer.periodic(const Duration(milliseconds: 700), (_) => _watchOutgoing());
   }
 
   bool _answerApplied = false;
@@ -223,7 +303,8 @@ class _CallScreenState extends State<CallScreen> {
     final ans = c['answer'];
     if (!_answerApplied && ans is Map && '${ans['sdp']}'.isNotEmpty) {
       _answerApplied = true;
-      RingtoneService.instance.stop();
+      await RingtoneService.instance.stop();
+      await _applyCallAudio();
       setState(() {
         _phase = _Phase.connecting;
         _status = 'Connecting…';
@@ -250,14 +331,50 @@ class _CallScreenState extends State<CallScreen> {
     if (st != 'ringing') _endWith(st == 'missed' ? 'Missed call' : 'Call ended');
   }
 
+  /// Runs while the phone rings: fetch the offer, open mic/camera, build
+  /// the answer and gather network routes — but send nothing yet.
+  Future<Map<String, dynamic>?> _prepareAnswer() async {
+    try {
+      final c = await _social.callGet(widget.thread, _callId!);
+      final offer = c?['offer'];
+      if (!mounted || c == null || '${c['status']}' != 'ringing' || offer is! Map) return null;
+      if (!await _openMedia(quiet: true)) return null;
+      if (!mounted || _closing) {
+        _teardown(); // declined / caller hung up while we were preparing
+        return null;
+      }
+      await _createPc();
+      await _pc!.setRemoteDescription(RTCSessionDescription('${offer['sdp']}', '${offer['type']}'));
+      final answer = await _pc!.createAnswer({});
+      await _pc!.setLocalDescription(answer);
+      final full = await _completeLocalDescription();
+      return '${full['sdp']}'.isEmpty ? null : full;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> _accept() async {
     _poll?.cancel();
-    RingtoneService.instance.stop();
+    await RingtoneService.instance.stop();
     NotificationsService.instance.cancelCall();
     setState(() {
       _phase = _Phase.connecting;
       _status = 'Connecting…';
     });
+    final prepared = _prepared == null ? null : await _prepared;
+    if (!mounted || _closing) return;
+    if (prepared != null && _pc != null && _stream != null) {
+      await _applyCallAudio();
+      final r = await _social.callAnswer(widget.thread, _callId!, prepared);
+      if (!mounted) return;
+      if (!r.ok) {
+        _fail(r.error ?? 'Could not answer');
+        return;
+      }
+      _afterAnswerSent();
+      return;
+    }
     final c = await _social.callGet(widget.thread, _callId!);
     if (!mounted) return;
     final offer = c?['offer'];
@@ -286,14 +403,21 @@ class _CallScreenState extends State<CallScreen> {
     await _pc!.setLocalDescription(answer);
     final full = await _completeLocalDescription();
     if (!mounted || _closing || '${full['sdp']}'.isEmpty) return;
+    await _applyCallAudio();
     final r = await _social.callAnswer(widget.thread, _callId!, full);
     if (!mounted) return;
     if (!r.ok) { _fail(r.error ?? 'Could not answer'); return; }
+    _afterAnswerSent();
+  }
+
+  void _afterAnswerSent() {
+    _giveUp?.cancel();
     _giveUp = Timer(const Duration(seconds: 25), () {
       if (_phase != _Phase.connected) {
         _fail('Could not connect. The network may block direct calls — the admin can add a TURN server.');
       }
     });
+    _poll?.cancel();
     _poll = Timer.periodic(const Duration(seconds: 3), (_) => _watchEnded());
   }
 
@@ -412,6 +536,7 @@ class _CallScreenState extends State<CallScreen> {
           children: [
             if (showRemoteVideo)
               RTCVideoView(_remote,
+                  filterQuality: FilterQuality.medium,
                   objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
             else
               Container(
@@ -495,6 +620,16 @@ class _CallScreenState extends State<CallScreen> {
                                 onTap: _toggleCam),
                           if (_video)
                             _RoundBtn(
+                                icon: _hd ? Icons.hd_rounded : Icons.data_saver_on_rounded,
+                                color: _hd ? Colors.white : Colors.white24,
+                                iconColor: _hd ? AppColors.slate : Colors.white,
+                                label: _hd ? 'HD' : 'Saver',
+                                onTap: () {
+                                  setState(() => _hd = !_hd);
+                                  _tuneVideoSender();
+                                }),
+                          if (_video)
+                            _RoundBtn(
                                 icon: Icons.cameraswitch_rounded,
                                 color: Colors.white24,
                                 label: 'Flip',
@@ -530,6 +665,7 @@ class _CallScreenState extends State<CallScreen> {
                   borderRadius: BorderRadius.circular(14),
                   child: RTCVideoView(_local,
                       mirror: true,
+                      filterQuality: FilterQuality.medium,
                       objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
                 ),
               ),

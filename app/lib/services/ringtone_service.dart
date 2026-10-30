@@ -29,10 +29,17 @@ class RingtoneService {
     ),
   );
 
+  // iOS: same session category as the call itself (playAndRecord), so the
+  // mic/camera can be prepared while it rings without cutting the ringtone,
+  // and nothing has to be switched back when the call is answered.
   static final _ringtoneContext = AudioContext(
     iOS: AudioContextIOS(
-      category: AVAudioSessionCategory.playback,
-      options: const {AVAudioSessionOptions.mixWithOthers},
+      category: AVAudioSessionCategory.playAndRecord,
+      options: const {
+        AVAudioSessionOptions.defaultToSpeaker,
+        AVAudioSessionOptions.allowBluetooth,
+        AVAudioSessionOptions.mixWithOthers,
+      },
     ),
     android: const AudioContextAndroid(
       isSpeakerphoneOn: true,
