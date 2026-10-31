@@ -3,6 +3,7 @@ name: Android Build (APK + AAB)
 on:
   push:
     branches: [main]
+    paths-ignore: ['volo-chat/**', '.github/workflows/volo-*.yml']
   workflow_dispatch:
 
 permissions:

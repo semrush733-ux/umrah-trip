@@ -19,3 +19,9 @@ app/web/
 *.iml
 .DS_Store
 .env
+
+volo-chat/app/android/
+volo-chat/app/ios/
+volo-chat/app/build/
+volo-chat/app/.dart_tool/
+volo-chat/app/pubspec.lock

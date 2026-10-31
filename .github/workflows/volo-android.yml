@@ -1,0 +1,138 @@
+name: Volo Chat — Android
+
+on:
+  push:
+    branches: [main]
+    paths: ['volo-chat/**', '.github/workflows/volo-*.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: volo-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: volo-chat/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap platform folders
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: bash ../scripts/bootstrap_platforms.sh
+
+      - name: Build release APK
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          VOLO_API_BASE: ${{ secrets.VOLO_API_BASE }}
+        run: |
+          set -o pipefail
+          flutter build apk --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=VOLO_API_BASE=${VOLO_API_BASE:-} 2>&1 | tee build-apk.log
+
+      - name: Build release AAB
+        env:
+          MAPS_API_KEY: ${{ secrets.MAPS_API_KEY }}
+          VOLO_API_BASE: ${{ secrets.VOLO_API_BASE }}
+        run: |
+          set -o pipefail
+          flutter build appbundle --release --dart-define=MAPS_API_KEY=${MAPS_API_KEY:-} --dart-define=VOLO_API_BASE=${VOLO_API_BASE:-} 2>&1 | tee build-aab.log
+
+      - name: Post build failure log as commit comment
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          : > faillog.txt
+          for f in build-apk.log build-aab.log; do
+            if [ -f "$f" ]; then echo "===== $f (tail) =====" >> faillog.txt; tail -c 45000 "$f" >> faillog.txt; fi
+          done
+          [ -s faillog.txt ] || echo "(no build log captured)" > faillog.txt
+          printf '**Android build FAILED** (`%s`)\n\n```\n' "${GITHUB_SHA::7}" > comment.md
+          cat faillog.txt >> comment.md
+          printf '\n```\n' >> comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md >/dev/null || true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoloChat-release-apk
+          path: volo-chat/app/build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoloChat-release-aab
+          path: volo-chat/app/build/app/outputs/bundle/release/app-release.aab
+
+      # Public, login-free download links on the rolling "latest" release.
+      - name: Publish APK + AAB to 'volo-latest' release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          gh release view volo-latest >/dev/null 2>&1 || \
+            gh release create volo-latest --latest=false --title "Volo Chat — latest builds" \
+              --notes "Rolling release: freshest APK/AAB/IPA from main. IPA is unsigned (install via Sideloadly/AltStore)."
+          cp volo-chat/app/build/app/outputs/flutter-apk/app-release.apk VoloChat.apk
+          cp volo-chat/app/build/app/outputs/bundle/release/app-release.aab VoloChat.aab
+          gh release upload volo-latest VoloChat.apk VoloChat.aab --clobber
+
+      # ---- Quality gates: run after artifacts so a style issue never blocks
+      # a usable build; full output is posted as a commit comment. The job
+      # still turns red if analysis finds errors or tests fail. ----
+      - name: Analyze + tests (report)
+        id: qa
+        continue-on-error: true
+        run: |
+          set +e
+          {
+            echo "### flutter analyze"
+            flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1
+            a=$?
+            echo ""
+            echo "### flutter test"
+            flutter test 2>&1
+            t=$?
+            echo ""
+            echo "analyze_exit=$a test_exit=$t"
+            exit $(( a + t ))
+          } | tee qa-report.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Post QA report as commit comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BODY_FILE=qa-report.txt
+          [ -f "$BODY_FILE" ] || echo "(QA step did not run — build failed earlier)" > "$BODY_FILE"
+          head -c 60000 "$BODY_FILE" > qa-trimmed.txt
+          printf '**Android CI QA report** (`%s`)\n\n```\n' "${GITHUB_SHA::7}" > comment.md
+          cat qa-trimmed.txt >> comment.md
+          printf '\n```\n' >> comment.md
+          gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/comments" -F body=@comment.md >/dev/null
+
+      - name: Fail job if QA failed
+        if: steps.qa.outcome == 'failure'
+        run: |
+          echo "Analyzer/tests reported problems — see the commit comment."
+          exit 1

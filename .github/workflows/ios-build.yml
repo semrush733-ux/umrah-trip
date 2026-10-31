@@ -3,6 +3,7 @@ name: iOS Build (unsigned IPA)
 on:
   push:
     branches: [main]
+    paths-ignore: ['volo-chat/**', '.github/workflows/volo-*.yml']
   workflow_dispatch:
     inputs:
       runner:
