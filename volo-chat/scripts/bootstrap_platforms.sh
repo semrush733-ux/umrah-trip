@@ -13,6 +13,9 @@ if [ ! -d android ] || [ ! -d ios ]; then
   flutter create . --org com.bwpexperts --project-name volo_chat --platforms android,ios
 fi
 
+# flutter create adds a counter-app test that doesn't apply to this app.
+if [ -f test/widget_test.dart ] && grep -q 'MyApp' test/widget_test.dart; then rm test/widget_test.dart; fi
+
 flutter pub get
 python3 "$(dirname "$0")/patch_platforms.py"
 
