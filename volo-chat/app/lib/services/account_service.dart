@@ -65,7 +65,7 @@ class VoloUser {
 class AccountService extends ChangeNotifier {
   String? token;
   VoloUser? me;
-  bool requireEmail = true;
+  bool requireEmail = false;
   bool ready = false;
 
   bool get loggedIn => token != null;
@@ -81,7 +81,7 @@ class AccountService extends ChangeNotifier {
         me = VoloUser.fromJson(jsonDecode(raw) as Map);
       } catch (_) {}
     }
-    requireEmail = p.getBool('volo_require_email') ?? true;
+    requireEmail = p.getBool('volo_require_email') ?? false;
     ready = true;
     notifyListeners();
     Api.config().then((c) async {

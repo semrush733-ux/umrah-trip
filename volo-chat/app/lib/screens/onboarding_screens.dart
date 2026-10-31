@@ -317,7 +317,10 @@ class _PhoneScreenState extends State<PhoneScreen> {
       return;
     }
     Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => OtpScreen(phone: '${r.data['phone'] ?? _full}', testMode: r.data['test_mode'] == true)));
+        builder: (_) => OtpScreen(
+            phone: '${r.data['phone'] ?? _full}',
+            testMode: r.data['test_mode'] == true,
+            lastDigits: r.data['hint'] == 'last4')));
   }
 
   @override
@@ -419,7 +422,9 @@ class _PhoneScreenState extends State<PhoneScreen> {
 class OtpScreen extends StatefulWidget {
   final String phone;
   final bool testMode;
-  const OtpScreen({super.key, required this.phone, this.testMode = false});
+  /// Test login (no SMS yet): the code is the last 4 digits of the number.
+  final bool lastDigits;
+  const OtpScreen({super.key, required this.phone, this.testMode = false, this.lastDigits = false});
   @override
   State<OtpScreen> createState() => _OtpScreenState();
 }
@@ -430,6 +435,8 @@ class _OtpScreenState extends State<OtpScreen> {
   String? _err;
   int _wait = 60;
   Timer? _t;
+
+  int get _len => widget.lastDigits ? 4 : 6;
 
   @override
   void initState() {
@@ -496,9 +503,12 @@ class _OtpScreenState extends State<OtpScreen> {
             const Text('Verify your number',
                 style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
             const SizedBox(height: 10),
-            Text('Enter the 6-digit code we sent to ${widget.phone}',
+            Text(
+                widget.lastDigits
+                    ? 'Test mode (no SMS yet): enter the last 4 digits of ${widget.phone}'
+                    : 'Enter the 6-digit code we sent to ${widget.phone}',
                 style: const TextStyle(color: Colors.white70, fontSize: 15, height: 1.5)),
-            if (widget.testMode)
+            if (widget.testMode && !widget.lastDigits)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text('Test mode: use the test code set in the admin panel.',
@@ -509,12 +519,12 @@ class _OtpScreenState extends State<OtpScreen> {
             Stack(alignment: Alignment.center, children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: List.generate(6, (i) {
+                children: List.generate(_len, (i) {
                   final filled = i < digits.length;
                   final active = i == digits.length;
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 180),
-                    width: 48,
+                    width: _len == 4 ? 62 : 48,
                     height: 58,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
@@ -533,13 +543,13 @@ class _OtpScreenState extends State<OtpScreen> {
                   controller: _code,
                   autofocus: true,
                   keyboardType: TextInputType.number,
-                  maxLength: 6,
+                  maxLength: _len,
                   autofillHints: const [AutofillHints.oneTimeCode],
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: const InputDecoration(counterText: ''),
                   onChanged: (v) {
                     setState(() {});
-                    if (v.length == 6) _verify();
+                    if (v.length == _len) _verify();
                   },
                 ),
               ),

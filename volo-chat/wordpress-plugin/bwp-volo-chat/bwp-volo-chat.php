@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BWP Volo Chat
  * Description: Backend for the Volo Chat app — phone number sign-up with SMS code (Twilio Verify), email verification, profiles, contacts, live chat with delivered/seen ticks, voice notes, photos, voice/video calls (WebRTC signaling) with call history, groups, Status (24-hour stories), live location, meeting points, SOS alerts and optional push notifications. REST namespace: volo/v1.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: BWP Experts
  * Author URI: https://bwpexperts.com
  * License: GPL-2.0-or-later
@@ -10,7 +10,7 @@
 
 if (!defined('ABSPATH')) exit;
 
-define('VOLO_VERSION', '1.0.0');
+define('VOLO_VERSION', '1.0.1');
 define('VOLO_MAX_IMAGE_B64', 1400000);   // ~1 MB binary
 define('VOLO_MAX_AUDIO_B64', 2600000);   // ~2 MB binary
 define('VOLO_STATUS_TTL', DAY_IN_SECONDS);
@@ -170,7 +170,8 @@ function volo_settings() {
     $d = [
         'twilio_sid' => '', 'twilio_token' => '', 'twilio_verify_sid' => '',
         'test_code' => '', // when set, this code works for every number (testing only)
-        'require_email' => 1,
+        'last_digits_login' => 1, // no SMS yet: the code is the last 4 digits of the number (testing only)
+        'require_email' => 0,
         'stun_url' => 'stun:stun.l.google.com:19302',
         'turn_url' => '', 'turn_username' => '', 'turn_credential' => '',
         'fcm_api_key' => '', 'fcm_project_id' => '', 'fcm_sender_id' => '',
@@ -390,6 +391,9 @@ function volo_r_auth_start(WP_REST_Request $req) {
         if ($code >= 200 && $code < 300) return volo_json(['sent' => true, 'phone' => $phone]);
         return volo_err('Could not send the SMS: ' . ($j['message'] ?? 'Twilio error ' . $code), 502);
     }
+    if ($s['last_digits_login']) {
+        return volo_json(['sent' => true, 'phone' => $phone, 'test_mode' => true, 'hint' => 'last4']);
+    }
     if ($s['test_code'] !== '') {
         return volo_json(['sent' => true, 'phone' => $phone, 'test_mode' => true]);
     }
@@ -406,6 +410,8 @@ function volo_r_auth_verify(WP_REST_Request $req) {
     $ok = false;
     if ($s['test_code'] !== '' && hash_equals((string) $s['test_code'], $code)) {
         $ok = true;
+    } elseif (!volo_sms_ready() && $s['last_digits_login'] && hash_equals(substr($phone, -4), $code)) {
+        $ok = true; // test login: last 4 digits of the number
     } elseif (volo_sms_ready()) {
         [$http, $j] = volo_twilio('/VerificationCheck', ['To' => $phone, 'Code' => $code]);
         $ok = $http >= 200 && $http < 300 && ($j['status'] ?? '') === 'approved';
@@ -1307,6 +1313,7 @@ function volo_admin_settings() {
         foreach ($keys as $k) $new[$k] = sanitize_text_field(wp_unslash($_POST[$k] ?? ''));
         $new['test_code'] = preg_replace('/\D/', '', $new['test_code']);
         $new['require_email'] = empty($_POST['require_email']) ? 0 : 1;
+        $new['last_digits_login'] = empty($_POST['last_digits_login']) ? 0 : 1;
         $sj = trim(wp_unslash($_POST['fcm_service_json'] ?? ''));
         if (strpos($sj, '{ saved') !== 0) {
             if ($sj === '') {
@@ -1345,6 +1352,8 @@ function volo_admin_settings() {
     $f('twilio_verify_sid', 'Verify Service SID', '', 'text', 'VA...');
     $f('test_code', 'Test code (optional)', '⚠️ For testing only: when set, this code signs in ANY number without an SMS. Leave empty in real use.', 'text', 'e.g. 246810');
     ?>
+    <tr><th>Test login (no SMS)</th><td><label><input type="checkbox" name="last_digits_login" value="1" <?php checked($s['last_digits_login']); ?>> Sign in with the <b>last 4 digits</b> of the phone number as the code</label>
+    <p class="description">⚠️ For testing only — anyone who knows a number could sign in as it. Switches off by itself as soon as the Twilio keys above are filled in (real SMS codes are then used).</p></td></tr>
     <tr><th>Email verification</th><td><label><input type="checkbox" name="require_email" value="1" <?php checked($s['require_email']); ?>> Ask new users to verify an email address</label>
     <p class="description">Uses this site's email. If codes don't arrive, install "WP Mail SMTP".</p></td></tr>
     <?php $f('mail_from_name', 'Email sender name'); ?>
